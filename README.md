@@ -45,3 +45,8 @@ riscv64-unknown-elf-gcc -o hello hello.c
 spike pk hello
 ```
 
+## x86での実施例
+
+https://github.com/namin/inc
+
+で公開されています。
