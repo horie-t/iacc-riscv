@@ -58,9 +58,11 @@ qemu-system-riscv32 -nographic -machine sifive_e300  -kernel hello
 
 -nographicオプション起動時のターミナルコマンド
 
+| キー操作 | 説明 |
+|---------|------|
 | Ctrl-a h | ヘルプを表示 |
 | Ctrl-a x | エミュレータを終了 |
-| Ctrl-a s | ディスクのデータをファイルに保存 |
+説明| Ctrl-a s | ディスクのデータをファイルに保存 |
 | Ctrl-a t | タイムスタンプを表示 |
 | Ctrl-a b | breadを送信 |
 | Ctrl-a c | コンソールとモニタを切り替え |
