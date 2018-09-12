@@ -28,42 +28,20 @@ export RISCV=/usr/local/share/riscv   # /usr/local/share/riscvにインストー
 ./build-rv32ima.sh
 ```
 
-### QEMUのインストール
+## Spikeの実行
 
-依存パッケージのインストール
+Spikeエミュレータを使用すると、printf等が使えるので、Spikeを使用します。
 
-```
-sudo apt-get install pkg-config libglib2.0-dev zlib1g-dev libpixman-1-dev
-```
-
-[RISC-V のQENUのリポジトリ](https://github.com/riscv/riscv-qemu)から、ソース・コードをcloneし、インストールする。(本家の方にもRISC-Vはあるのだが、SiFiveのハードはサポートされていない)
-
+「Hello, world!」プログラムのコンパイル
 
 ```
-git clone --recursive https://github.com/riscv/riscv-qemu.git
-cd riscv-qemu
-./configure \
-    --target-list=riscv64-softmmu,riscv32-softmmu,riscv64-linux-user,riscv32-linux-user
-make -j4
-sudo make install
+echo -e '#include <stdio.h>\n int main(void) { printf("Hello world!\\n"); return 0; }' > hello.c
+riscv64-unknown-elf-gcc -o hello hello.c
 ```
 
-## QEMUの実行
-
-hello のELF実行ファイルがある場合。終了するには、「Ctrl-a」, 「x」をタイプします。
+実行方法
 
 ```
-qemu-system-riscv32 -nographic -machine sifive_e300  -kernel hello
+spike pk hello
 ```
 
--nographicオプション起動時のターミナルコマンド
-
-| キー操作 | 説明 |
-|---------|------|
-| Ctrl-a h | ヘルプを表示 |
-| Ctrl-a x | エミュレータを終了 |
-説明| Ctrl-a s | ディスクのデータをファイルに保存 |
-| Ctrl-a t | タイムスタンプを表示 |
-| Ctrl-a b | breadを送信 |
-| Ctrl-a c | コンソールとモニタを切り替え |
-| Ctrl-a a | Ctrl-aを送信 |
