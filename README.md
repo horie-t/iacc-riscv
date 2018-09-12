@@ -6,6 +6,8 @@
 
 本リポジトリでは、これをRISC-V向けのコンパイラとして作成していきます。
 
+各ステップの詳細は[Wikiページ](https://github.com/horie-t/iacc-riscv/wiki)に記載します。
+
 ## 開発環境の構築
 
 Ubuntu 18.04を対象に記述しています。
