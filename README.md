@@ -16,9 +16,9 @@ Ubuntu 18.04を対象に記述しています。
 
 ```
 sudo apt-get install autoconf automake autotools-dev curl libmpc-dev libmpfr-dev libgmp-dev libusb-1.0-0-dev gawk build-essential bison flex texinfo gperf libtool patchutils bc zlib1g-dev device-tree-compiler pkg-config libexpat-dev
+```
 
 [RISC-V Toolsのリポジトリ](https://github.com/riscv/riscv-tools)から、ソース・コードをcloneし、インストールする。
-```
 
 ```
 git clone --recursive https://github.com/riscv/riscv-tools.git
