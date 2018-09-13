@@ -30,6 +30,52 @@ export RISCV=/usr/local/share/riscv   # /usr/local/share/riscvにインストー
 ./build-rv32ima.sh
 ```
 
+### Scheme処理系のインストール
+
+Schemeの処理系であれば、なんでもいいのですが、ここでは、[Kawa](http://www.gnu.org/software/kawa/index.html)を使う事にします。
+
+依存パッケージのインストール
+
+Kawaは、Java上で動くのでJavaをインストールしておきます。(JREでもいいはずですが、JDKを入れています)
+
+```
+sudo apt install openjdk-8-jdk
+```
+
+Kawaの[最新版](ftp://ftp.gnu.org/pub/gnu/kawa/kawa-latest.zip)をダウンロードして展開します。
+
+```
+cd /usr/local/share
+sudo mkdir kawa
+cd kawa
+sudo wget ftp://ftp.gnu.org/pub/gnu/kawa/kawa-latest.zip
+sudo unzip kawa-latest.zip    # 執筆時点では、kawa-3.0が最新版でした
+```
+
+~/.bashrc ファイルに以下を追記
+```bash
+export KAWA_HOME=/usr/local/share/kawa/kawa-3.0
+export PATH=$KAWA_HOME/bin:$PATH
+```
+
+Emacsを使っている場合は、以下を設定しています。
+
+```elisp
+;;;; For Kawa
+(setq scheme-program-name "/usr/bin/java -cp /usr/local/share/kawa/kawa-3.0/lib/kawa.jar kawa.repl --full-tailcalls --warn-undefined-variable=no --warn-invoke-unknown-method=no --no-inline --output-format readable-scheme -s")
+(require 'cmuscheme)
+
+(defun scheme-other-window ()
+  "Run scheme on other window"
+  (interactive)
+  (switch-to-buffer-other-window
+   (get-buffer-create "*scheme*"))
+  (run-scheme scheme-program-name))
+
+(define-key global-map
+  "\C-cS" 'scheme-other-window)
+```
+
 ## Spikeの実行
 
 Spikeエミュレータを使用すると、printf等が使えるので、Spikeを使用します。
@@ -52,3 +98,6 @@ spike pk hello
 https://github.com/namin/inc
 
 で公開されています。
+
+[tutorial](https://github.com/namin/inc/blob/master/docs/tutorial.pdf?raw=true)もありました。
+
