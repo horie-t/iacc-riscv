@@ -38,15 +38,15 @@
   (and (integer? x) (exact? x) (<= fxlower x fxupper)))
 
 (define (immediate? x)
-  (or (fixnum? x) (boolean? x)))
+  (or (fixnum? x) (boolean? x) (char? x) (null? x)))
 
 (define (immediate-rep x)
   (cond
-   [(fixnum? x) (ash x fxshift)]
-   [(eq? x #f) (bool_f)]
-   [(eq? x #t) (bool_t)]
-   [(char? x) (logior (ash (char->integer x) charshift) charmask)]
-   [(null? x) ()]
+   ((fixnum? x) (ash x fxshift))
+   ((eq? x #f) bool_f)
+   ((eq? x #t) bool_t)
+   ((char? x) (logior (ash (char->integer x) charshift) chartag))
+   ((null? x) empty_list)
    (else (error "invalid immediate"))))
 
 (define (emit-program x)
@@ -58,4 +58,4 @@
   (emit "	li a0, ~s" (immediate-rep x))
   (emit "	ret"))
 
-(emit-program 42)
+(emit-program #\a)
