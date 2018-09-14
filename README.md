@@ -97,7 +97,6 @@ spike pk hello
 
 https://github.com/namin/inc
 
-で公開されています。
+で公開されています。(LISENCE.txtの内容から判断すると、ここが本家のページみたい)
 
 [tutorial](https://github.com/namin/inc/blob/master/docs/tutorial.pdf?raw=true)もありました。
-
