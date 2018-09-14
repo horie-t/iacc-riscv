@@ -25,7 +25,8 @@
 (define bool_bit 6)			; booleanの判定用ビット位置
 
 ;;; 空リスト:
-(define empty_list #x3f)		; 
+(define empty_list #x3f)		;
+(define emptymask #xff)			;
 
 ;;; 文字: 下位8ビットが00001111。ASCIIコードを8ビットシフトして、0x0fとORを取る。
 (define charmask #xff)			; char判定ビットマスク(ANDを取って、chartagならchar)
@@ -146,6 +147,46 @@
   (emit "	slli a0, a0, ~s" bool_bit)
   (emit "	ori  a0, a0, ~s" bool_f))
 
+;;; 空リストかどうかを返します
+(define-primitive (null? arg)
+  (emit-expr arg)
+  (emit "	andi a0, a0, ~s" emptymask)
+  (emit "	addi a0, a0, ~s" (- empty_list))
+  (emit "	seqz a0, a0")
+  (emit "	slli a0, a0, ~s" bool_bit)
+  (emit "	ori  a0, a0, ~s" bool_f))
+
+;;; booleanオブジェクトかどうかを返します
+(define-primitive (boolean? arg)
+  (emit-expr arg)
+  (emit "	andi a0, a0, ~s" boolmask)
+  (emit "	addi a0, a0, ~s" (- is_bool))
+  (emit "	seqz a0, a0")
+  (emit "	slli a0, a0, ~s" bool_bit)
+  (emit "	ori  a0, a0, ~s" bool_f))
+
+;;; 文字オブジェクトかどうかを返します
+(define-primitive (char? arg)
+  (emit-expr arg)
+  (emit "	andi a0, a0, ~s" charmask)
+  (emit "	addi a0, a0, ~s" (- chartag))
+  (emit "	seqz a0, a0")
+  (emit "	slli a0, a0, ~s" bool_bit)
+  (emit "	ori  a0, a0, ~s" bool_f))
+
+;;; #fなら#tを返し、それ以外は#fを返します。
+(define-primitive (not arg)
+  (emit-expr arg)
+  (emit "	addi a0, a0, ~s" (- bool_f))
+  (emit "	seqz a0, a0")
+  (emit "	slli a0, a0, ~s" bool_bit)
+  (emit "	ori  a0, a0, ~s" bool_f))
+
+;;;
+(define-primitive (fxlognot arg)
+  (emit-expr arg)
+  (emit "	xori a0, a0, ~s" (immediate-rep -1)))
+
 ;;;; コンパイラ・メイン処理
 
 (define (emit-expr expr)
@@ -162,4 +203,4 @@
   (emit-expr expr)
   (emit "	ret"))
 
-(emit-program '(fixnum? #\a))
+(emit-program '(fxlognot -1))
