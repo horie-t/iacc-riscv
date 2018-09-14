@@ -15,12 +15,14 @@
 ;;; 整数: 下位2ビットが00、上位30ビットが符号付き整数となっている
 (define fxshift 2)			; 整数変換シフト量
 (define fxmask #x03)			; 整数判定ビットマスク(ANDを取って0なら整数オブジェクト)
+(define fxtag #0x0)			;
 
 ;;; boolean: 
 (define bool_f #x2f)			; #fの数値表現 
 (define bool_t #x6f)			; #t
 (define boolmask #xbf)			; boolean判定ビットマスク(ANDを取ってis_boolならbooleanオブジェクト)
-(define is_bool #x2f)			; 
+(define is_bool #x2f)			;
+(define bool_bit 6)			; booleanの判定用ビット位置
 
 ;;; 空リスト:
 (define empty_list #x3f)		; 
@@ -119,6 +121,31 @@
   (emit-expr arg)
   (emit "	addi a0, a0, ~s" (immediate-rep 1)))
 
+;;; 引数から1を引いた値を返します
+(define-primitive (fxsub1 arg)
+  (emit-expr arg)
+  (emit "	addi a0, a0, ~s" (immediate-rep -1)))
+
+;;; fixnumからcharに変換します。
+(define-primitive (fixnum->char arg)
+  (emit-expr arg)
+  (emit "	slli a0, a0, ~s" (- charshift fxshift))
+  (emit "	ori  a0, a0, ~s" chartag))
+
+;;; charからfixnumに変換します。
+(define-primitive (char->fixnum arg)
+  (emit-expr arg)
+  (emit "	srli a0, a0, ~s" (- charshift fxshift)))
+
+;;; fixnumかどうかを返します
+(define-primitive (fixnum? arg)
+  (emit-expr arg)
+  (emit "	andi a0, a0, ~s" fxmask)
+  (emit "	addi a0, a0, ~s" (- fxtag))
+  (emit "	seqz a0, a0")
+  (emit "	slli a0, a0, ~s" bool_bit)
+  (emit "	ori  a0, a0, ~s" bool_f))
+
 ;;;; コンパイラ・メイン処理
 
 (define (emit-expr expr)
@@ -135,4 +162,4 @@
   (emit-expr expr)
   (emit "	ret"))
 
-(emit-program '(fxadd1 3))
+(emit-program '(fixnum? #\a))
