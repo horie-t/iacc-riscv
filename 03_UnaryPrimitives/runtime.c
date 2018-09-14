@@ -17,6 +17,8 @@
 /* Schemeの値は、ptr型とする */
 typedef uint32_t ptr;
 
+int scheme_entry();
+
 static void print_ptr(ptr x)
 {
   if ((x & fx_mask) == fx_tag) {
