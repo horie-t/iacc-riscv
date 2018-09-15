@@ -197,6 +197,8 @@
   (emit "	xori a0, a0, ~s" (immediate-rep -1)))
 
 ;;;; 条件式
+
+;;; if形式
 ;;; if形式かどうかを返します
 (define (if? expr)
   (and (pair? expr) (eq? (car expr) 'if)))
@@ -226,14 +228,33 @@
     (emit-expr (if-altern expr))
     (emit "~a:" end-label)))
 
+;;; and形式
+(define (and? expr)
+  (and (pair? expr) (eq? (car expr) 'and)))
+
+(define (emit-and expr)
+  (let ((pred-len (length (cdr expr))))
+    (cond
+     ((= pred-len 0)
+      (emit "	li a0, ~s" bool_t))	;引数なしなら常に真
+     ((= pred-len 1)
+      (emit-primcall (list 'not (cadr expr))) ; まず、(not test)の式に変換して評価する
+      (emit "	xori a0, a0, ~s" (ash 1 bool_bit))) ; a0は偽かどうかの値なので、ビット反転でnotを演算する
+     (else
+      ;; (and test test* ...) => (if test (and test* ...) #f)と変換して処理
+      (emit-if (list 'if (cadr expr)
+		         (cons 'and (cddr expr))
+		         #f))))))
+
 ;;;; コンパイラ・メイン処理
 
 (define (emit-expr expr)
   (cond
    ((immediate? expr) (emit-immediate expr))
    ((if? expr)        (emit-if expr))
+   ((and? expr)       (emit-and expr))
    ((primcall? expr)  (emit-primcall expr))
-   (else (error "imvalid expr"))))
+   (else (error "imvalid expr: ~a" expr))))
 
 (define (emit-program expr)
   (emit "	.text")
@@ -243,4 +264,4 @@
   (emit-expr expr)
   (emit "	ret"))
 
-(emit-program '(if (boolean? #\a) 7 1))
+(emit-program '(and (fixnum? 4) (boolean? #f) #t))
