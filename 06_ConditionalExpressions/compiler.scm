@@ -246,6 +246,24 @@
 		         (cons 'and (cddr expr))
 		         #f))))))
 
+;;; or形式
+(define (or? expr)
+  (and (pair? expr) (eq? (car expr) 'or)))
+
+(define (emit-or expr)
+  (let ((pred-len (length (cdr expr))))
+    (cond
+     ((= pred-len 0)
+      (emit "	li a0, ~s" bool_f))	;引数なしなら常に偽
+     ((= pred-len 1)
+      (emit-primcall (list 'not (cadr expr))) ; まず、(not test)の式に変換して評価する
+      (emit "	xori a0, a0, ~s" (ash 1 bool_bit))) ; a0は偽かどうかの値なので、ビット反転でnotを演算する
+     (else
+      ;; (or test test* ...) => (if test #t (or test* ...))と変換して処理
+      (emit-if (list 'if (cadr expr)
+		         #t
+		         (cons 'or (cddr expr))))))))
+
 ;;;; コンパイラ・メイン処理
 
 (define (emit-expr expr)
@@ -253,6 +271,7 @@
    ((immediate? expr) (emit-immediate expr))
    ((if? expr)        (emit-if expr))
    ((and? expr)       (emit-and expr))
+   ((or? expr)        (emit-or expr))
    ((primcall? expr)  (emit-primcall expr))
    (else (error "imvalid expr: ~a" expr))))
 
@@ -264,4 +283,4 @@
   (emit-expr expr)
   (emit "	ret"))
 
-(emit-program '(and (fixnum? 4) (boolean? #f) #t))
+(emit-program '(or #t #f #f))
