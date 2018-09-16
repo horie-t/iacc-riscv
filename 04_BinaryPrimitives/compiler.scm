@@ -1,5 +1,7 @@
 (import (rnrs hashtables))
 
+(load "test_cases.scm")
+
 ;;;; ユーティリティ関数
 
 ;;; 書式と引数を取って表示し、改行を付け加えます。
@@ -127,29 +129,29 @@
     (apply (primitive-emitter prim) si args)))
 
 ;;; 引数に1を加えた値を返します
-(define-primitive (fxadd1 arg)
-  (emit-expr arg)
+(define-primitive (fxadd1 si arg)
+  (emit-expr si arg)
   (emit "	addi a0, a0, ~s" (immediate-rep 1)))
 
 ;;; 引数から1を引いた値を返します
-(define-primitive (fxsub1 arg)
-  (emit-expr arg)
+(define-primitive (fxsub1 si arg)
+  (emit-expr si arg)
   (emit "	addi a0, a0, ~s" (immediate-rep -1)))
 
 ;;; fixnumからcharに変換します。
-(define-primitive (fixnum->char arg)
-  (emit-expr arg)
+(define-primitive (fixnum->char si arg)
+  (emit-expr si arg)
   (emit "	slli a0, a0, ~s" (- charshift fxshift))
   (emit "	ori  a0, a0, ~s" chartag))
 
 ;;; charからfixnumに変換します。
-(define-primitive (char->fixnum arg)
-  (emit-expr arg)
+(define-primitive (char->fixnum si arg)
+  (emit-expr si arg)
   (emit "	srli a0, a0, ~s" (- charshift fxshift)))
 
 ;;; fixnumかどうかを返します
-(define-primitive (fixnum? arg)
-  (emit-expr arg)
+(define-primitive (fixnum? si arg)
+  (emit-expr si arg)
   (emit "	andi a0, a0, ~s" fxmask)
   (emit "	addi a0, a0, ~s" (- fxtag))
   (emit "	seqz a0, a0")
@@ -157,8 +159,8 @@
   (emit "	ori  a0, a0, ~s" bool_f))
 
 ;;; 空リストかどうかを返します
-(define-primitive (null? arg)
-  (emit-expr arg)
+(define-primitive (null? si arg)
+  (emit-expr si arg)
   (emit "	andi a0, a0, ~s" emptymask)
   (emit "	addi a0, a0, ~s" (- empty_list))
   (emit "	seqz a0, a0")
@@ -166,8 +168,8 @@
   (emit "	ori  a0, a0, ~s" bool_f))
 
 ;;; booleanオブジェクトかどうかを返します
-(define-primitive (boolean? arg)
-  (emit-expr arg)
+(define-primitive (boolean? si arg)
+  (emit-expr si arg)
   (emit "	andi a0, a0, ~s" boolmask)
   (emit "	addi a0, a0, ~s" (- is_bool))
   (emit "	seqz a0, a0")
@@ -175,8 +177,8 @@
   (emit "	ori  a0, a0, ~s" bool_f))
 
 ;;; 文字オブジェクトかどうかを返します
-(define-primitive (char? arg)
-  (emit-expr arg)
+(define-primitive (char? si arg)
+  (emit-expr si arg)
   (emit "	andi a0, a0, ~s" charmask)
   (emit "	addi a0, a0, ~s" (- chartag))
   (emit "	seqz a0, a0")
@@ -184,16 +186,16 @@
   (emit "	ori  a0, a0, ~s" bool_f))
 
 ;;; #fなら#tを返し、それ以外は#fを返します。
-(define-primitive (not arg)
-  (emit-expr arg)
+(define-primitive (not si arg)
+  (emit-expr si arg)
   (emit "	addi a0, a0, ~s" (- bool_f))
   (emit "	seqz a0, a0")
   (emit "	slli a0, a0, ~s" bool_bit)
   (emit "	ori  a0, a0, ~s" bool_f))
 
 ;;;
-(define-primitive (fxlognot arg)
-  (emit-expr arg)
+(define-primitive (fxlognot si arg)
+  (emit-expr si arg)
   (emit "	xori a0, a0, ~s" (immediate-rep -1)))
 
 ;;;; 二項基本演算
@@ -332,9 +334,7 @@
 	      (flush-output-port)
 	      (test-one (cadr test-case) (caddr test-case))
 	      (format #t " ok.\n"))
-	    '(("primitive posi num" 1 "1\n")
-	      ("primitive zero num" 0 "0\n")
-	      ("fx+ " (fx+ 4 2) "6\n"))))
+	    test-cases))
 
 ;;(test-one '(fx+ 4 2) "6\n")
 
