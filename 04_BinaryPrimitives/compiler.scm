@@ -325,5 +325,16 @@
   (execute)
   (validate expected-output))
 
+;;; 全てのテストケースをテストします。
+(define (test-all)
+  (for-each (lambda (test-case)
+	      (format #t "TestCase: ~a ..." (car test-case))
+	      (flush-output-port)
+	      (test-one (cadr test-case) (caddr test-case))
+	      (format #t " ok.\n"))
+	    '(("primitive posi num" 1 "1\n")
+	      ("primitive zero num" 0 "0\n")
+	      ("fx+ " (fx+ 4 2) "6\n"))))
+
 ;;(test-one '(fx+ 4 2) "6\n")
 
