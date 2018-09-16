@@ -292,4 +292,38 @@
   (emit-expr (- wordsize) expr)
   (emit "	ret"))
 
-(emit-program '(fx+ 1 2))
+;;;; 自動テスト関連
+
+;;; Schemeプログラムのコンパイル
+(define (compile-program expr)
+  (with-output-to-file (path "stst.s")
+    (lambda ()
+	(emit-program expr))))
+
+;;; 実行ファイルの作成
+(define (build)
+  (unless (zero? (process-exit-wait (run-process "make stst --quiet")))
+	  (error "Could not build target.")))
+
+;;; テスト・プログラムの実行
+(define (execute)
+  (unless (zero? (process-exit-wait (run-process out-to: (path "./stst.out")
+						 "spike pk ./stst > ./stst.out")))
+	  (error "Produced program exited abnormally.")))
+
+;;; テスト・プログラムの実行結果の検証
+(define (validate expected-output)
+  (let ((executed-output (path-data (path "stst.out"))))
+    (unless (string=? expected-output executed-output)
+	    (error "Output mismatch for expected ~s, got ~s." 
+		   expected-output executed-output))))
+
+;;; 一つのテスト・ケースをテストします。
+(define (test-one expr expected-output)
+  (compile-program expr)
+  (build)
+  (execute)
+  (validate expected-output))
+
+;;(test-one '(fx+ 4 2) "6\n")
+
