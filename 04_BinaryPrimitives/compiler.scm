@@ -199,13 +199,73 @@
   (emit "	xori a0, a0, ~s" (immediate-rep -1)))
 
 ;;;; 二項基本演算
+
+;;; 整数加算
 (define-primitive (fx+ si arg1 arg2)	; siは、stack indexの略。siが指す先は、空き領域にしてから呼び出す事
   (emit-expr si arg1)
   (emit "	sw a0, ~s(sp)" si)	; 結果をスタックに一時退避
   (emit-expr (- si wordsize) arg2)
   (emit "	lw t0, ~s(sp)" si)	; スタックに退避した値をt0に復元
   (emit "	add a0, a0, t0"))
-  
+
+;;; 整数減算
+(define-primitive (fx- si arg1 arg2)
+  (emit-expr si arg1)
+  (emit "	sw a0, ~s(sp)" si)
+  (emit-expr (- si wordsize) arg2)
+  (emit "	lw t0, ~s(sp)" si)
+  (emit "	sub a0, t0, a0"))
+
+;;; 整数ビット論理積
+(define-primitive (fxlogand si arg1 arg2)
+  (emit-expr si arg1)
+  (emit "	sw a0, ~s(sp)" si)
+  (emit-expr (- si wordsize) arg2)
+  (emit "	lw t0, ~s(sp)" si)
+  (emit "	and a0, a0, t0"))
+
+;;; 整数ビット論理和
+(define-primitive (fxlogor si arg1 arg2)
+  (emit-expr si arg1)
+  (emit "	sw a0, ~s(sp)" si)
+  (emit-expr (- si wordsize) arg2)
+  (emit "	lw t0, ~s(sp)" si)
+  (emit "	or a0, a0, t0"))
+
+;;; 整数等号
+(define-primitive (fx= si arg1 arg2)
+  (emit-expr si arg1)
+  (emit "	sw a0, ~s(sp)" si)
+  (emit-expr (- si wordsize) arg2)
+  (emit "	lw t0, ~s(sp)" si)
+  (emit "       sub a0, a0, t0")
+  (emit "	seqz a0, a0")
+  (emit "	slli a0, a0, ~s" bool_bit)
+  (emit "	ori  a0, a0, ~s" bool_f))
+
+;;; 整数小なり
+(define-primitive (fx< si arg1 arg2)
+  (emit-expr si arg1)
+  (emit "	sw a0, ~s(sp)" si)
+  (emit-expr (- si wordsize) arg2)
+  (emit "	lw t0, ~s(sp)" si)
+  (emit "       slt a0, t0, a0")
+  (emit "	slli a0, a0, ~s" bool_bit)
+  (emit "	ori  a0, a0, ~s" bool_f))
+
+;;; 整数以下
+(define-primitive (fx<= si arg1 arg2)
+  (emit-expr si (list 'fx< arg2 arg1)) ; 大なりを判定して、あとで否定する
+  (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
+
+;;; 整数大なり
+(define-primitive (fx> si arg1 arg2)
+  (emit-expr si (list 'fx< arg2 arg1)))	; 引数を逆にして、小なりを使う
+
+;;; 整数以上
+(define-primitive (fx>= si arg1 arg2)
+  (emit-expr si (list 'fx< arg1 arg2)) ; 小なりを判定して、あとで否定する
+  (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
 
 ;;;; 条件式
 
