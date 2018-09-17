@@ -62,8 +62,8 @@
 (define fxmask #x03)			; 整数判定ビットマスク(ANDを取って0なら整数オブジェクト)
 (define fxtag #0x0)			;
 
-;;; boolean: 
-(define bool_f #x2f)			; #fの数値表現 
+;;; boolean:
+(define bool_f #x2f)			; #fの数値表現
 (define bool_t #x6f)			; #t
 (define boolmask #xbf)			; boolean判定ビットマスク(ANDを取ってis_boolならbooleanオブジェクト)
 (define is_bool #x2f)			;
@@ -120,7 +120,7 @@
   (let ((entry (hashtable-ref *prop* x #f)))
     (if entry
 	(hashtable-set! entry property val)
-	(hashtable-set! *prop* 
+	(hashtable-set! *prop*
 			x
 			(let ((entry (make-eq-hashtable)))
 			  (hashtable-set! entry property val)
@@ -440,6 +440,31 @@
 		     (extend-env (car b) si new-env))))))
   (process-let (let-bindings expr) si env))
 
+;;;; let*形式
+;;; let*形式かどうかを返します。
+(define (let*? expr)
+  (and (pair? expr) (eq? (car expr) 'let*)))
+
+;;;
+;; let*は、letの入れ子に書き換えてしまう。
+;; 例)
+;; (let* ((x 1))                       (let ((x 1))
+;;  (let* ((x (fx+ x 1))        =>       (let ((x (fx+ x 1)))
+;;         (y (fx+ x 1)))                  (let ((y (fx+ x 1)))
+;;     y))                                   y)))
+(define (emit-let* si env expr)
+  (emit-expr si env
+	     (let ((bindings (let-bindings expr))
+		   (body (let-body expr)))
+	       (cond
+		((<= (length bindings) 1)
+		 (list 'let bindings
+		       body))
+		(else
+		 (list 'let (list (car bindings))
+		       (list 'let* (cdr bindings)
+			     body)))))))
+
 ;;; 変数参照
 (define (variable? expr)
   (symbol? expr))
@@ -464,6 +489,7 @@
    ((and? expr)       (emit-and si env expr))
    ((or? expr)        (emit-or si env expr))
    ((let? expr)       (emit-let si env expr))
+   ((let*? expr)      (emit-let* si env expr))
    ((primcall? expr)  (emit-primcall si env expr))
    (else (error "imvalid expr: " expr))))
 
@@ -498,7 +524,7 @@
 (define (validate expected-output)
   (let ((executed-output (path-data (path "stst.out"))))
     (unless (string=? expected-output executed-output)
-	    (error "Output mismatch for expected ~s, got ~s." 
+	    (error "Output mismatch for expected ~s, got ~s."
 		   expected-output executed-output))))
 
 ;;; 一つのテスト・ケースをテストします。
@@ -518,4 +544,3 @@
 	    test-cases))
 
 ;;(test-one '(fx+ 4 2) "6\n")
-
