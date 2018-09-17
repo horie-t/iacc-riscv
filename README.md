@@ -1,8 +1,8 @@
 # An Incremental Approach to Compiler Construction for RISC-V
 
-『[An Incremental Approach to Compiler Construction](http://scheme2006.cs.uchicago.edu/11-ghuloum.pdf) (少しずつ進めるコンパイラ作成)』のRISC-V向けにやってみるリポジトリです。
+『[An Incremental Approach to Compiler Construction](https://github.com/namin/inc/blob/master/docs/paper.pdf?raw=true) (少しずつ進めるコンパイラ作成)』のRISC-V向けにやってみるリポジトリです。元のリポジトリは[こちら](https://github.com/namin/inc)です。
 
-この論文は、SchemeでSchemeのx86向けのコンパイラを、24ステップに分けて作成していくものです。
+この論文は、SchemeでSchemeのx86向けのコンパイラを、24ステップに分けて作成していくものです。論文だけでは難しいので、[チュートリアル](https://github.com/namin/inc/blob/master/docs/tutorial.pdf?raw=true)があります。
 
 本リポジトリでは、これをRISC-V向けのコンパイラとして作成していきます。
 
@@ -92,11 +92,3 @@ riscv64-unknown-elf-gcc -o hello hello.c
 ```
 spike pk hello
 ```
-
-## x86での実施例
-
-https://github.com/namin/inc
-
-で公開されています。(LISENCE.txtの内容から判断すると、ここが本家のページみたい)
-
-[tutorial](https://github.com/namin/inc/blob/master/docs/tutorial.pdf?raw=true)もありました。
