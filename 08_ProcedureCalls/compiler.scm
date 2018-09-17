@@ -21,6 +21,13 @@
 	(set! count (+ count 1))
 	L))))
 
+;;; ユニーク・ラベルのリストを生成します。
+;; vars ラベルの一部を形成する文字のリスト
+(define (unique-labels vars)
+  (map (lambda (var)
+	 (format "~a_~s" (unique-label) var))
+       vars))
+
 ;;;; スタック関連
 ;;; スタックに値を保存します。
 ;; si スタック・インデックス
@@ -30,9 +37,16 @@
 (define (emit-stack-load si)
   (emit "	lw a0, ~s(sp)" si))
 
+(define (emit-stack-load-t0 si)
+  (emit "	lw t0, ~s(sp)" si))
+
 ;;; 次のスタックインデックスを返します。
 (define (next-stack-index si)
   (- si wordsize))
+
+;;; スタック・ポインタを移動させます。
+(define (emit-adjust-base si)
+  (emit "	addi sp, sp, ~s" si))
 
 ;;;; 環境関連
 ;;; 環境を生成します。
@@ -47,6 +61,10 @@
 ;; env 変数を追加する環境
 (define (extend-env var si env)
   (cons (list var si) env))
+
+;;; 環境に変数を追加します。
+(define (bulk-extend-env vars vals env)
+  (append (map list vars vals) env))
 
 ;;; 環境から変数の値のスタック・インデックスを検索します
 (define (lookup var env)
@@ -112,9 +130,10 @@
 (define *prop* (make-eq-hashtable))
 
 (define (getprop x property)
-  (hashtable-ref
-   (hashtable-ref *prop* x #f)
-   property #f))
+  (let ((prop (hashtable-ref *prop* x #f)))
+    (if prop
+	(hashtable-ref prop property #f)
+	#f)))
 
 (define (putprop x property val)
   (let ((entry (hashtable-ref *prop* x #f)))
@@ -239,7 +258,7 @@
   (emit-expr si env arg1)
   (emit-stack-save si)			; 結果をスタックに一時退避
   (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load si)		      ; スタックに退避した値をt0に復元
+  (emit-stack-load-t0 si)		      ; スタックに退避した値をt0に復元
   (emit "	add a0, a0, t0"))
 
 ;;; 整数減算
@@ -247,7 +266,7 @@
   (emit-expr si env arg1)
   (emit-stack-save si)
   (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load si)
+  (emit-stack-load-t0 si)
   (emit "	sub a0, t0, a0"))
 
 ;;; 整数積
@@ -256,7 +275,7 @@
   (emit "	sra a0, a0, ~s" fxshift)
   (emit-stack-save si)
   (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load si)
+  (emit-stack-load-t0 si)
   (emit "	mul a0, t0, a0"))
 
 ;;; 整数ビット論理積
@@ -264,7 +283,7 @@
   (emit-expr si env arg1)
   (emit-stack-save si)
   (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load si)
+  (emit-stack-load-t0 si)
   (emit "	and a0, a0, t0"))
 
 ;;; 整数ビット論理和
@@ -272,7 +291,7 @@
   (emit-expr si env arg1)
   (emit-stack-save si)
   (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load si)
+  (emit-stack-load-t0 si)
   (emit "	or a0, a0, t0"))
 
 ;;; 整数等号
@@ -280,8 +299,8 @@
   (emit-expr si env arg1)
   (emit-stack-save si)
   (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load si)
-  (emit "       sub a0, a0, t0")
+  (emit-stack-load-t0 si)
+  (emit "	sub a0, a0, t0")
   (emit "	seqz a0, a0")
   (emit "	slli a0, a0, ~s" bool_bit)
   (emit "	ori  a0, a0, ~s" bool_f))
@@ -291,7 +310,7 @@
   (emit-expr si env arg1)
   (emit-stack-save si)
   (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load si)
+  (emit-stack-load-t0 si)
   (emit "       slt a0, t0, a0")
   (emit "	slli a0, a0, ~s" bool_bit)
   (emit "	ori  a0, a0, ~s" bool_f))
@@ -315,8 +334,8 @@
   (emit-expr si env arg1)			; 型判定をしていないので、fx=を同じ内容。eq?をこれにしてOKかも
   (emit-stack-save si)
   (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load si)
-  (emit "       sub a0, a0, t0")
+  (emit-stack-load-t0 si)
+  (emit "	sub a0, a0, t0")
   (emit "	seqz a0, a0")
   (emit "	slli a0, a0, ~s" bool_bit)
   (emit "	ori  a0, a0, ~s" bool_f))
@@ -326,7 +345,7 @@
   (emit-expr si env arg1)
   (emit-stack-save si)
   (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load si)
+  (emit-stack-load-t0 si)
   (emit "       slt a0, t0, a0")
   (emit "	slli a0, a0, ~s" bool_bit)
   (emit "	ori  a0, a0, ~s" bool_f))
@@ -465,6 +484,20 @@
 		       (list 'let* (cdr bindings)
 			     body)))))))
 
+;;;; letrec形式
+;;; letrec形式かどうかを返します。
+(define (letrec? expr)
+  (and (pair? expr) (eq? (car expr) 'letrec)))
+
+(define (emit-letrec expr)
+  (let* ((bindings (let-bindings expr))
+	 (lvars (map car bindings))
+	 (lambdas (map cadr bindings))
+	 (labels (unique-labels lvars))
+	 (env (bulk-extend-env lvars labels ())))
+    (for-each (emit-lambda env) lambdas labels)
+    (emit-scheme-entry (let-body expr) env)))
+
 
 ;;; 変数参照
 (define (variable? expr)
@@ -480,6 +513,51 @@
        (else (error "emit-variable-ref. "
 		    (format #t "looked up unknown value ~s for var ~s" val var))))))))
 
+;;;; lambda
+(define (lambda-formals expr)
+  (cadr expr))
+
+(define (lambda-body expr)
+  (caddr expr))
+
+(define (emit-lambda env)
+  (lambda (expr label)
+    (emit-function-header label)
+    (emit "	addi sp, sp, ~s" (- wordsize))
+    (emit "	sw ra, 0(sp)")
+    (let ((fmls (lambda-formals expr))
+	  (body (lambda-body expr)))
+      (let f ((fmls fmls)
+	      (si (- wordsize))
+	      (env env))
+	(cond
+	 ((null? fmls)
+	  (emit-expr si env body)
+	  (emit "	lw ra, 0(sp)")
+	  (emit "	addi sp, sp, ~s" wordsize)
+	  (emit "	ret"))
+	 (else
+	  (f (cdr fmls)
+	     (- si wordsize)
+	     (extend-env (car fmls) si env))))))))
+
+;;;; app関連
+;;; apply可能かどうか
+(define (app? expr env)
+  (and (list? expr) (not (null? expr)) (lookup (car expr) env)))
+
+(define (emit-app si env expr)
+  (define (emit-arguments si args)
+    (unless (null? args)
+      (emit-expr si env (car args))
+      (emit-stack-save si)
+      (emit-arguments (- si wordsize) (cdr args))))
+  (emit-arguments (- si (* 2 wordsize)) (cdr expr))
+  (emit-adjust-base si)
+  (emit-call (lookup (car expr) env))
+  (emit-adjust-base (- si)))
+
+
 ;;;; コンパイラ・メイン処理
 
 (define (emit-expr si env expr)
@@ -492,15 +570,42 @@
    ((let? expr)       (emit-let si env expr))
    ((let*? expr)      (emit-let* si env expr))
    ((primcall? expr)  (emit-primcall si env expr))
+   ((app? expr env)   (emit-app si env expr))
    (else (error "imvalid expr: " expr))))
 
-(define (emit-program expr)
+(define (emit-label label)
+  (emit "~a:" label))
+
+(define (emit-function-header f)
   (emit "	.text")
-  (emit "	.globl scheme_entry")
-  (emit "	.type scheme_entry, @function")
-  (emit "scheme_entry:")
-  (emit-expr (- wordsize) () expr)
+  (emit "	.globl ~a" f)
+  (emit "	.type ~a, @function" f)
+  (emit-label f))
+
+(define (emit-scheme-entry expr env)
+  (emit-function-header "L_scheme_entry")
+  (emit "	addi sp, sp, ~s" (- wordsize))
+  (emit "	sw ra, 0(sp)")
+  (emit-expr (- wordsize) env expr)
+  (emit "	lw ra, 0(sp)")
+  (emit "	addi sp, sp, ~s" wordsize)
   (emit "	ret"))
+
+(define (emit-call label)
+  (emit "	call ~a" label))
+
+(define (emit-program program)
+  (emit-function-header "scheme_entry")
+  (emit "	addi sp, sp, ~s" (- wordsize))
+  (emit "	sw ra, 0(sp)")
+  (emit "	call L_scheme_entry")
+  (emit "	lw ra, 0(sp)")
+  (emit "	addi sp, sp, ~s" wordsize)
+  (emit "	ret")
+  (cond
+   ((letrec? program) (emit-letrec program))
+   (else
+    (emit-scheme-entry program ()))))
 
 ;;;; 自動テスト関連
 
@@ -543,5 +648,3 @@
 	      (test-one (cadr test-case) (caddr test-case))
 	      (format #t " ok.\n"))
 	    test-cases))
-
-;;(test-one '(fx+ 4 2) "6\n")

@@ -1,5 +1,6 @@
 (define test-cases
-  '(("imm int posi num"  1         "1\n")
+  '(
+    ("imm int posi num"  1         "1\n")
     ("imm int zero num"  0         "0\n")
     ("imm int minus"    -1        "-1\n")
     ("imm int max"       536870911 "536870911\n")
@@ -58,4 +59,9 @@
 	      (let* ((x (fx+ x 1))
 		     (y (fx+ x 1)))
 		y))    "3\n")
+    ("letrec" (letrec ((fact (lambda (n)
+			       (if (fx= n 1)
+				   1
+				   (fx* n (fact (fx- n 1)))))))
+		(fact 5)) "120\n")
     ))
