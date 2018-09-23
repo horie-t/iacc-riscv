@@ -167,8 +167,8 @@
   (and (symbol? x) (getprop x '*is-prime*)))
 
 (define (primitive-emitter x)
-  (or (getprop x '*emmiter*) (error "primitive-emitter: not exist emmiter")))
-
+  (or (getprop x '*emmiter*) (error "primitive-emitter: not exist emmiter"))
+)
 ;;;; 単項演算関連
 
 ;;; 単項演算呼び出し(単項演算処理)かどうかを返します。
@@ -554,6 +554,62 @@
     (move-arguments si (- si) (cdr expr))
     (emit-jmp-tail (lookup (car expr) env)))))
 
+
+;;;; ヒープ領域関連
+(define objshift 2)
+
+;;; ヒープメモリ確保時の最低サイズ(バイト)
+(define heap-cell-size (ash 1 objshift))
+
+;;; ヒープメモリを確保します。確保したアドレスはa0に設定
+;; size 確保するバイト数
+(define (emit-heap-alloc size)
+  (let ((alloc-size (* (+ (div (- size 1) heap-cell-size) 1) heap-cell-size)))
+    (emit "	mv s0, a0")
+    (emit "	addi s0, s0, ~s" (* alloc-size bytes))))
+
+;;; スタックの値をヒープにコピーします。
+;; si コピー元の値のスタックインデックス
+;; offset a0+offset のアドレスに値をコピーします。
+(define (emit-stack-to-heap si offset)
+  (emit "	lw t0, ~s(sp)" si)
+  (emit "	sw t0, ~s(s0)" offset))
+
+;;; ヒープの値をa0に読み込みます。
+;; offset a0+offset のアドレスの値を読み込みます
+(define (emit-heap-load offset)
+  (emit "	lw a0, ~s(a0)" offset))
+
+;;;; ペア関連
+(define pairtag #b001)			; ペアのタグ
+(define paircar 0)			; ペア中のcar部分のオフセット
+(define paircdr 4)			; ペア中のcdr部分のオフセット
+
+;;; cons
+(define-primitive (cons si env arg1 arg2)
+  (emit-binop si env arg1 arg2)
+  (emit-stack-save (next-stack-index si))
+  (emit-heap-alloc pairsize)
+  (emit "	ori a0, a0, ~s" pairtag)
+  (emit-stack-to-heap si (- paircar pairtag))
+  (emit-stack-to-heap (next-stack-index si) (- paircdr pairtag)))
+
+;;; pair?
+(define-primitive (pair? si env arg)
+  (emit-expr si env arg)
+  (emit "  and $~s, %al" objmask)
+  (emit "  cmp $~s, %al" pairtag)
+  (emit-cmp-bool))
+
+;;; car
+(define-primitive (car si env arg)
+  (emit-expr si env arg)
+  (emit-heap-load (- paircar pairtag)))
+
+;;; cdr
+(define-primitive (cdr si env arg)
+  (emit-expr si env arg)
+  (emit-heap-load (- paircdr pairtag)))
 
 ;;;; コンパイラ・メイン処理
 
