@@ -253,53 +253,43 @@
 
 ;;;; 二項基本演算
 
-;;; 整数加算
-(define-primitive (fx+ si env arg1 arg2)	; siは、stack indexの略。siが指す先は、空き領域にしてから呼び出す事
+;;; 二項基本演算ユーティリティ
+;; arg1、arg2を評価し、結果をそれぞれt0、a0レジスタに代入します
+(define (emit-binop si env arg1 arg2)
   (emit-expr si env arg1)
   (emit-stack-save si)			; 結果をスタックに一時退避
   (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load-t0 si)		      ; スタックに退避した値をt0に復元
+  (emit-stack-load-t0 si))		      ; スタックに退避した値をt0に復元
+
+;;; 整数加算
+(define-primitive (fx+ si env arg1 arg2)	; siは、stack indexの略。siが指す先は、空き領域にしてから呼び出す事
+  (emit-binop si env arg1 arg2)    
   (emit "	add a0, a0, t0"))
 
 ;;; 整数減算
 (define-primitive (fx- si env arg1 arg2)
-  (emit-expr si env arg1)
-  (emit-stack-save si)
-  (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load-t0 si)
+  (emit-binop si env arg1 arg2)
   (emit "	sub a0, t0, a0"))
 
 ;;; 整数積
 (define-primitive (fx* si env arg1 arg2)
-  (emit-expr si env arg1)
+  (emit-binop si env arg1 arg2)
   (emit "	sra a0, a0, ~s" fxshift)
-  (emit-stack-save si)
-  (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load-t0 si)
   (emit "	mul a0, t0, a0"))
 
 ;;; 整数ビット論理積
 (define-primitive (fxlogand si env arg1 arg2)
-  (emit-expr si env arg1)
-  (emit-stack-save si)
-  (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load-t0 si)
+  (emit-binop si env arg1 arg2)
   (emit "	and a0, a0, t0"))
 
 ;;; 整数ビット論理和
 (define-primitive (fxlogor si env arg1 arg2)
-  (emit-expr si env arg1)
-  (emit-stack-save si)
-  (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load-t0 si)
+  (emit-binop si env arg1 arg2)
   (emit "	or a0, a0, t0"))
 
 ;;; 整数等号
 (define-primitive (fx= si env arg1 arg2)
-  (emit-expr si env arg1)
-  (emit-stack-save si)
-  (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load-t0 si)
+  (emit-binop si env arg1 arg2)
   (emit "	sub a0, a0, t0")
   (emit "	seqz a0, a0")
   (emit "	slli a0, a0, ~s" bool_bit)
@@ -307,10 +297,7 @@
 
 ;;; 整数小なり
 (define-primitive (fx< si env arg1 arg2)
-  (emit-expr si env arg1)
-  (emit-stack-save si)
-  (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load-t0 si)
+  (emit-binop si env arg1 arg2)
   (emit "       slt a0, t0, a0")
   (emit "	slli a0, a0, ~s" bool_bit)
   (emit "	ori  a0, a0, ~s" bool_f))
@@ -331,10 +318,7 @@
 
 ;;; 文字等号
 (define-primitive (char= si env arg1 arg2)
-  (emit-expr si env arg1)			; 型判定をしていないので、fx=を同じ内容。eq?をこれにしてOKかも
-  (emit-stack-save si)
-  (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load-t0 si)
+  (emit-binop si env arg1 arg2)	; 型判定をしていないので、fx=と同じ内容。eq?をこれにしてOKかも
   (emit "	sub a0, a0, t0")
   (emit "	seqz a0, a0")
   (emit "	slli a0, a0, ~s" bool_bit)
@@ -342,10 +326,7 @@
 
 ;;; 整数小なり
 (define-primitive (char< si env arg1 arg2)
-  (emit-expr si env arg1)
-  (emit-stack-save si)
-  (emit-expr (next-stack-index si) env arg2)
-  (emit-stack-load-t0 si)
+  (emit-binop si env arg1 arg2)
   (emit "       slt a0, t0, a0")
   (emit "	slli a0, a0, ~s" bool_bit)
   (emit "	ori  a0, a0, ~s" bool_f))
