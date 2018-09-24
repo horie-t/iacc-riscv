@@ -172,8 +172,8 @@
   (and (symbol? x) (getprop x '*is-prime*)))
 
 (define (primitive-emitter x)
-  (or (getprop x '*emmiter*) (error "primitive-emitter: not exist emmiter"))
-)
+  (or (getprop x '*emmiter*) (error "primitive-emitter: not exist emmiter")))
+
 ;;;; 単項演算関連
 
 ;;; 単項演算呼び出し(単項演算処理)かどうかを返します。
@@ -355,7 +355,7 @@
 ;;; if形式
 ;;; if形式かどうかを返します
 (define (if? expr)
-  (and (pair? expr) (eq? (car expr) 'if)))
+  (tagged-form? 'if expr))
 
 ;;; if形式の述部(predicate)を取り出します。
 (define (if-test expr)
@@ -384,7 +384,7 @@
 
 ;;; and形式
 (define (and? expr)
-  (and (pair? expr) (eq? (car expr) 'and)))
+  (tagged-form? 'and expr))
 
 (define (emit-and si env expr)
   (let ((pred-len (length (cdr expr))))
@@ -402,7 +402,7 @@
 
 ;;; or形式
 (define (or? expr)
-  (and (pair? expr) (eq? (car expr) 'or)))
+  (tagged-form? 'or expr))
 
 (define (emit-or si env expr)
   (let ((pred-len (length (cdr expr))))
