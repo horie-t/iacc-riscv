@@ -28,6 +28,11 @@
 	 (format "~a_~s" (unique-label) var))
        vars))
 
+;;; 式の書式判定ユーティリティ
+;; (tag ....) の形式かどうかを判定します。
+(define (tagged-form? tag expr)
+  (and (list? expr) (not (null? expr)) (eq? (car expr) tag)))
+
 ;;;; スタック関連
 ;;; スタックに値を保存します。
 ;; si スタック・インデックス
@@ -416,7 +421,7 @@
 ;;;; let形式
 ;;; let形式かどうかを返します
 (define (let? expr)
-  (and (pair? expr) (eq? (car expr) 'let)))
+  (tagged-form? 'let expr))
 
 ;;; let形式のbinding部分を返します。
 (define (let-bindings expr)
@@ -443,7 +448,7 @@
 ;;;; let*形式
 ;;; let*形式かどうかを返します。
 (define (let*? expr)
-  (and (pair? expr) (eq? (car expr) 'let*)))
+  (tagged-form? 'let* expr))
 
 ;;;
 ;; let*は、letの入れ子に書き換えてしまう。
@@ -468,7 +473,7 @@
 ;;;; letrec形式
 ;;; letrec形式かどうかを返します。
 (define (letrec? expr)
-  (and (pair? expr) (eq? (car expr) 'letrec)))
+  (tagged-form? 'letrec expr))
 
 (define (emit-letrec expr)
   (let* ((bindings (let-bindings expr))
