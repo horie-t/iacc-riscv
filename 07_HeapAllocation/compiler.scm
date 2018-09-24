@@ -566,14 +566,14 @@
 (define (emit-heap-alloc size)
   (let ((alloc-size (* (+ (div (- size 1) heap-cell-size) 1) heap-cell-size)))
     (emit "	mv s0, a0")
-    (emit "	addi s0, s0, ~s" (* alloc-size bytes))))
+    (emit "	addi s0, s0, ~s" alloc-size)))
 
 ;;; スタックの値をヒープにコピーします。
 ;; si コピー元の値のスタックインデックス
 ;; offset a0+offset のアドレスに値をコピーします。
 (define (emit-stack-to-heap si offset)
   (emit "	lw t0, ~s(sp)" si)
-  (emit "	sw t0, ~s(s0)" offset))
+  (emit "	sw t0, ~s(a0)" offset))
 
 ;;; ヒープの値をa0に読み込みます。
 ;; offset a0+offset のアドレスの値を読み込みます
@@ -582,6 +582,7 @@
 
 ;;;; ペア関連
 (define pairtag #b001)			; ペアのタグ
+(define pairsize 8)			; ペアのメモリサイズ(バイト)
 (define paircar 0)			; ペア中のcar部分のオフセット
 (define paircdr 4)			; ペア中のcdr部分のオフセット
 

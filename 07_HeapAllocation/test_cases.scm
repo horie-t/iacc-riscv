@@ -64,4 +64,6 @@
 				   1
 				   (fx* n (fact (fx- n 1)))))))
 		(fact 5)) "120\n")
+    ("heap car"    (car (cons 1 2)) "1\n")
+    ("heap cdr"    (cdr (cons 1 2)) "2\n")
     ))

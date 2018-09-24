@@ -3,7 +3,7 @@ CC=riscv64-unknown-elf-gcc
 TARGET=stst
 
 $(TARGET): stst.s runtime.c
-	$(CC) -o $@ $^
+	$(CC) -T link.ld -o $@ $^
 
 run: $(TARGET)
 	spike pk $<

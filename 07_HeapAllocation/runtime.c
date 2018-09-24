@@ -41,11 +41,9 @@ static void print_ptr(ptr x)
 
 int main(int argc, char *argv)
 {
-  void *heap = malloc(16 * 1024); /* ヒープ領域(16KB) */
+  extern void *heap;
   
   print_ptr(scheme_entry(heap));
-
-  free(heap);
   
   return 0;
 }
