@@ -671,11 +671,14 @@
 
 (define (emit-program program)
   (emit-function-header "scheme_entry")
-  (emit "	addi sp, sp, ~s" (- wordsize))
+  (emit "	addi sp, sp, ~s" (- (* wordsize 2)))
   (emit "	sw ra, 0(sp)")
+  (emit "	sw s0, ~s(sp)" wordsize)
+  (emit "	mv s0, a0")		; heapの空きアドレスは、s0レジスタに保存する。
   (emit "	call L_scheme_entry")
   (emit "	lw ra, 0(sp)")
-  (emit "	addi sp, sp, ~s" wordsize)
+  (emit "	lw s0, ~s(sp)" wordsize)
+  (emit "	addi sp, sp, ~s" (* wordsize 2))
   (emit "	ret")
   (cond
    ((letrec? program) (emit-letrec program))

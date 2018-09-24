@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #define bool_f	0x2F
 #define bool_t	0x6F
@@ -17,7 +18,7 @@
 /* Schemeの値は、ptr型とする */
 typedef uint32_t ptr;
 
-int scheme_entry();
+int scheme_entry(void *heap);
 
 static void print_ptr(ptr x)
 {
@@ -40,7 +41,11 @@ static void print_ptr(ptr x)
 
 int main(int argc, char *argv)
 {
-  print_ptr(scheme_entry());
+  void *heap = malloc(16 * 1024); /* ヒープ領域(16KB) */
+  
+  print_ptr(scheme_entry(heap));
+
+  free(heap);
   
   return 0;
 }
