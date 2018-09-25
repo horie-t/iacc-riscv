@@ -640,6 +640,16 @@
   (emit-expr si env arg)
   (emit-heap-load (- paircdr pairtag)))
 
+;;; set-car!
+(define-primitive (set-car! si env arg1 arg2)
+  (emit-binop si env arg2 arg1)
+  (emit-stack-to-heap si (- paircar pairtag)))
+
+;;; set-cdr!
+(define-primitive (set-cdr! si env arg1 arg2)
+  (emit-binop si env arg2 arg1)
+  (emit-stack-to-heap si (- paircdr pairtag)))
+
 ;;;; コンパイラ・メイン処理
 
 ;;; 手続き内部の式のコンパイル
