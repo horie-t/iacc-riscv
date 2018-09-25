@@ -710,6 +710,55 @@
   (emit "	add a0, a0, t0")
   (emit-heap-load (- vectortag)))
 
+;;;; 文字列関連
+(define stringtag   #x06)
+
+;;; 文字列を作成します。
+(define-primitive (make-string si env length)
+  (emit-expr-save si env length)
+  (emit "	srai a0, a0, ~s" fxshift)
+  (emit "	addi a0, a0, ~s" wordsize)
+  (emit-heap-alloc-dynamic)
+  (emit-stack-to-heap si 0)
+  (emit "	ori a0, a0, ~s" stringtag))
+
+;;; 文字列かどうかを返します。
+(define-primitive (string? si env arg)
+  (emit-object? stringtag si env arg))
+
+;;; 文字列の長さを返します。
+(define-primitive (string-length si env arg)
+  (emit-expr si env arg)
+  (emit-heap-load (- stringtag)))
+
+;;; 文字列に文字をセットします。
+(define-primitive (string-set! si env string index value)
+  (emit-expr si env index)
+  (emit "	srai a0, a0, ~s" fxshift)
+  (emit "	addi a0, a0, ~s" wordsize)
+  (emit-stack-save si)
+  (emit-expr (next-stack-index si) env value)
+  (emit "	srai a0, a0, ~s" charshift)
+  (emit-stack-save (next-stack-index si))
+  (emit-expr si env string)
+  (emit-stack-load-t0 si)
+  (emit "	add a0, a0, t0")
+  (emit-stack-load-t0 (next-stack-index si))
+  (emit "	sb t0, ~s(a0)" (- stringtag)))
+
+;;; 文字列の文字を参照します。
+(define-primitive (string-ref si env string index)
+  (emit-expr si env index)
+  (emit "	srai a0, a0, ~s" fxshift)
+  (emit "	addi a0, a0, ~s" wordsize)
+  (emit-stack-save si)
+  (emit-expr si env string)
+  (emit-stack-load-t0 si)
+  (emit "	add a0, a0, t0")
+  (emit "	lb a0, ~s(a0)" (- stringtag))
+  (emit "	slli a0, a0, ~s" charshift)
+  (emit "	ori a0, a0, ~s" chartag))
+
 ;;;; コンパイラ・メイン処理
 
 ;;; 手続き内部の式のコンパイル
