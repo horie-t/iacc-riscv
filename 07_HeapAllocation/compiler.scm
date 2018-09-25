@@ -639,13 +639,7 @@
 
 ;;; pair?
 (define-primitive (pair? si env arg)
-  (emit-expr si env arg)
-  (emit "	andi a0, a0, ~s" objmask)
-  (emit "	li t0, ~s" pairtag)
-  (emit "	sub a0, a0, t0")
-  (emit "	seqz a0, a0")
-  (emit "	slli a0, a0, ~s" bool_bit)
-  (emit "	ori  a0, a0, ~s" bool_f))
+  (emit-object? pairtag si env arg))
 
 ;;; car
 (define-primitive (car si env arg)
@@ -658,13 +652,13 @@
   (emit-heap-load (- paircdr pairtag)))
 
 ;;; set-car!
-(define-primitive (set-car! si env arg1 arg2)
-  (emit-binop si env arg2 arg1)
+(define-primitive (set-car! si env cell val)
+  (emit-binop si env val cell)
   (emit-stack-to-heap si (- paircar pairtag)))
 
 ;;; set-cdr!
-(define-primitive (set-cdr! si env arg1 arg2)
-  (emit-binop si env arg2 arg1)
+(define-primitive (set-cdr! si env cell val)
+  (emit-binop si env val cell)
   (emit-stack-to-heap si (- paircdr pairtag)))
 
 ;;;; ベクトル関連
