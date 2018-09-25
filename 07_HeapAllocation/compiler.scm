@@ -113,6 +113,7 @@
 (define charshift 8)			; char変換シフト量
 
 (define wordsize 4)			; 32bit(4バイト)
+(define wordshift 2)			; word数 -> バイト数 変換シフト量
 
 (define fixnum-bits (- (* wordsize 8) fxshift))
 (define fxlower (- (expt 2 (- fixnum-bits 1))))
@@ -573,7 +574,7 @@
     (emit-jmp-tail (lookup (car expr) env)))))
 
 
-;;;; ヒープ領域関連
+;;;; ヒープ領域オブジェクト関連
 (define objshift 2)
 (define objmask #x07)
 
@@ -587,6 +588,16 @@
     (emit "	mv a0, s0")
     (emit "	addi s0, s0, ~s" alloc-size)))
 
+;;; 動的にヒープ・メモリを確保します。確保するバイト数はa0にセットして呼び出します。
+(define (emit-heap-alloc-dynamic)
+  (emit "	addi a0, a0, -1")
+  (emit "	srai a0, a0, ~s" objshift)
+  (emit "	addi a0, a0, 1")
+  (emit "	slli a0, a0, ~s" objshift)
+  (emit "	mv t0, a0")
+  (emit "	mv a0, s0")
+  (emit "	add s0, s0, t0"))
+
 ;;; スタックの値をヒープにコピーします。
 ;; si コピー元の値のスタックインデックス
 ;; offset a0+offset のアドレスに値をコピーします。
@@ -598,6 +609,13 @@
 ;; offset a0+offset のアドレスの値を読み込みます
 (define (emit-heap-load offset)
   (emit "	lw a0, ~s(a0)" offset))
+
+;;; オブジェクトの型判定をします。
+;; tag オブジェクトの型タグ
+(define (emit-object? tag si env arg)
+  (emit-expr si env arg)
+  (emit "	andi a0, a0, ~s" objmask)
+  (emit-cmp-bool tag))
 
 ;;;; eq?
 (define-primitive (eq? si env arg1 arg2)
@@ -649,6 +667,55 @@
   (emit-binop si env arg2 arg1)
   (emit-stack-to-heap si (- paircdr pairtag)))
 
+;;;; ベクトル関連
+(define vectortag #x05)			; ベクトルのタグ
+
+;;; ベクトルを作成します。
+;; length ベクトルの要素数
+(define-primitive (make-vector si env length)
+  (emit-expr si env length)
+  (emit-stack-save si)
+  (emit "	addi a0, a0, ~s" (ash 1 fxshift)) ; 要素数+1のセルを確保する。+1はlengthデータ保存用
+  (emit "	slli a0, a0, ~s" wordshift)	  ; 要素数 -> バイト数へ変換
+  (emit-heap-alloc-dynamic)
+  (emit-stack-to-heap si 0)
+  (emit "	ori a0, a0, ~s" vectortag))
+
+;;; ベクトルかどうかを返します。
+(define-primitive (vector? si env arg)
+  (emit-object? vectortag si env arg))
+
+;;; ベクトルの要素数を返します。
+(define-primitive (vector-length si env arg)
+  (emit-expr si env arg)
+  (emit-heap-load (- vectortag)))	; タグの値の分だけアドレスをずらす
+
+;;; ベクトルに値をセットします。
+;; vector セットされるベクトル
+;; index セットする位置
+;; value セットする値
+(define-primitive (vector-set! si env vector index value)
+  (emit-expr si env index)
+  (emit "	addi a0, a0, ~s" (ash 1 fxshift)) ; index=0の位置には長さが入っているのでずれる。 
+  (emit "	slli a0, a0, ~s" (- objshift fxshift))
+  (emit-stack-save si)
+  (emit-expr-save (next-stack-index si) env value)
+  (emit-expr si env vector)
+  (emit-stack-load-t0 si)
+  (emit "	add a0, a0, t0")
+  (emit-stack-to-heap (next-stack-index si) (- vectortag)))
+
+;;; ベクトルの要素の値を取得します。
+(define-primitive (vector-ref si env vector index)
+  (emit-expr si env index)
+  (emit "	addi a0, a0, ~s" (ash 1 fxshift)) ; index=0の位置には長さが入っているのでずれる。 
+  (emit "	slli a0, a0, ~s" (- objshift fxshift))
+  (emit-stack-save si)
+  (emit-expr si env vector)
+  (emit-stack-load-t0 si)
+  (emit "	add a0, a0, t0")
+  (emit-heap-load (- vectortag)))
+
 ;;;; コンパイラ・メイン処理
 
 ;;; 手続き内部の式のコンパイル
@@ -660,6 +727,11 @@
   
 (define (emit-expr si env expr)
   (emit-any-expr si env #f expr))
+
+;;; 式を評価して、siに保存します。
+(define (emit-expr-save si env arg)
+  (emit-expr si env arg)
+  (emit-stack-save si))
 
 ;;; 手続き末尾の式のコンパイル
 (define (emit-tail-expr si env expr)
