@@ -484,6 +484,24 @@
     (for-each (emit-lambda env) lambdas labels)
     (emit-scheme-entry (let-body expr) env)))
 
+;;;; begin形式
+;;; begin形式かどうかを返します。
+(define (begin? expr)
+  (tagged-form? 'begin expr))
+
+(define (emit-begin si env tail expr)
+  (emit-seq si env tail (cdr expr)))
+
+;; 連続した式を出力します
+;; seq 連続した式。例: ((set-car! some-pair 7) (set-cdr! come-pair 5) some-pair) 
+(define (emit-seq si env tail seq)
+  (cond
+   ((null? seq) (error "empty seq"))
+   ((null? (cdr seq))			; 連続式の末尾の場合
+    (emit-any-expr si env tail (car seq)))
+   (else				; 連続式の途中の場合
+    (emit-expr si env (car seq))
+    (emit-seq si env tail (cdr seq)))))
 
 ;;; 変数参照
 (define (variable? expr)
@@ -647,6 +665,7 @@
    ((or? expr)        (emit-or si env expr) (emit-ret-if tail))
    ((let? expr)       (emit-let si env tail expr))
    ((let*? expr)      (emit-let* si env tail expr))
+   ((begin? expr)    (emit-begin si env tail expr))
    ((primcall? expr)  (emit-primcall si env expr) (emit-ret-if tail))
    ((app? expr env)   (emit-app si env tail expr))
    (else (error "imvalid expr: " expr))))

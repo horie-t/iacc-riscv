@@ -66,4 +66,5 @@
 		(fact 5)) "120\n")
     ("heap car"    (car (cons 1 2)) "1\n")
     ("heap cdr"    (cdr (cons 1 2)) "2\n")
+    ("begin" (begin (fx+ 1 2) (fx- 2 1)) "1\n")
     ))
