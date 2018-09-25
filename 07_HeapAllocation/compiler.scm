@@ -429,7 +429,9 @@
 
 ;;; let形式のbody部分を返します。
 (define (let-body expr)
-  (caddr expr))
+  (if (null? (cdddr expr))
+      (caddr expr)
+      (make-begin (cddr expr))))
 
 (define (emit-let si env tail expr)
   (define (process-let bindings si new-env)
@@ -502,6 +504,9 @@
    (else				; 連続式の途中の場合
     (emit-expr si env (car seq))
     (emit-seq si env tail (cdr seq)))))
+
+(define (make-begin seq)
+  (cons 'begin seq))
 
 ;;; 変数参照
 (define (variable? expr)
