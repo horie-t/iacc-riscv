@@ -78,4 +78,8 @@
     ("set-cdr!" (let ((apair (cons 1 2)))
 		  (set-cdr! apair 5)
 		  (cdr apair))     "5\n")
+    ("eq? num"  (eq? 1 1)          "#t\n")
+    ("eq? obj"  (let ((pair-a (cons 1 2))
+		      (pair-b (cons 1 2)))
+		  (eq? pair-a pair-b))          "#f\n")
     ))

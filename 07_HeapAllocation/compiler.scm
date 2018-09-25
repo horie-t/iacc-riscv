@@ -28,6 +28,17 @@
 	 (format "~a_~s" (unique-label) var))
        vars))
 
+;;; 値比較ユーティリティ
+;; a0と値を比較し、booleanオブジェクトをa0に設定します。
+;; args 比較する即値、省略時はt0と比較
+(define (emit-cmp-bool . args)
+  (if (null? args)
+      (emit "	sub a0, a0, t0")
+      (emit "	addi a0, a0, ~s" (- (car args))))
+  (emit "	seqz a0, a0")
+  (emit "	slli a0, a0, ~s" bool_bit)
+  (emit "	ori  a0, a0, ~s" bool_f))
+
 ;;; 式の書式判定ユーティリティ
 ;; (tag ....) の形式かどうかを判定します。
 (define (tagged-form? tag expr)
@@ -211,45 +222,30 @@
 (define-primitive (fixnum? si env arg)
   (emit-expr si env arg)
   (emit "	andi a0, a0, ~s" fxmask)
-  (emit "	addi a0, a0, ~s" (- fxtag))
-  (emit "	seqz a0, a0")
-  (emit "	slli a0, a0, ~s" bool_bit)
-  (emit "	ori  a0, a0, ~s" bool_f))
+  (emit-cmp-bool fxtag))
 
 ;;; 空リストかどうかを返します
 (define-primitive (null? si env arg)
   (emit-expr si env arg)
   (emit "	andi a0, a0, ~s" emptymask)
-  (emit "	addi a0, a0, ~s" (- empty_list))
-  (emit "	seqz a0, a0")
-  (emit "	slli a0, a0, ~s" bool_bit)
-  (emit "	ori  a0, a0, ~s" bool_f))
+  (emit-cmp-bool empty_list))
 
 ;;; booleanオブジェクトかどうかを返します
 (define-primitive (boolean? si env arg)
   (emit-expr si env arg)
   (emit "	andi a0, a0, ~s" boolmask)
-  (emit "	addi a0, a0, ~s" (- is_bool))
-  (emit "	seqz a0, a0")
-  (emit "	slli a0, a0, ~s" bool_bit)
-  (emit "	ori  a0, a0, ~s" bool_f))
+  (emit-cmp-bool is_bool))
 
 ;;; 文字オブジェクトかどうかを返します
 (define-primitive (char? si env arg)
   (emit-expr si env arg)
   (emit "	andi a0, a0, ~s" charmask)
-  (emit "	addi a0, a0, ~s" (- chartag))
-  (emit "	seqz a0, a0")
-  (emit "	slli a0, a0, ~s" bool_bit)
-  (emit "	ori  a0, a0, ~s" bool_f))
+  (emit-cmp-bool chartag))
 
 ;;; #fなら#tを返し、それ以外は#fを返します。
 (define-primitive (not si env arg)
   (emit-expr si env arg)
-  (emit "	addi a0, a0, ~s" (- bool_f))
-  (emit "	seqz a0, a0")
-  (emit "	slli a0, a0, ~s" bool_bit)
-  (emit "	ori  a0, a0, ~s" bool_f))
+  (emit-cmp-bool bool_f))
 
 ;;;
 (define-primitive (fxlognot si env arg)
@@ -295,10 +291,7 @@
 ;;; 整数等号
 (define-primitive (fx= si env arg1 arg2)
   (emit-binop si env arg1 arg2)
-  (emit "	sub a0, a0, t0")
-  (emit "	seqz a0, a0")
-  (emit "	slli a0, a0, ~s" bool_bit)
-  (emit "	ori  a0, a0, ~s" bool_f))
+  (emit-cmp-bool))
 
 ;;; 整数小なり
 (define-primitive (fx< si env arg1 arg2)
@@ -324,10 +317,7 @@
 ;;; 文字等号
 (define-primitive (char= si env arg1 arg2)
   (emit-binop si env arg1 arg2)	; 型判定をしていないので、fx=と同じ内容。eq?をこれにしてOKかも
-  (emit "	sub a0, a0, t0")
-  (emit "	seqz a0, a0")
-  (emit "	slli a0, a0, ~s" bool_bit)
-  (emit "	ori  a0, a0, ~s" bool_f))
+  (emit-cmp-bool))
 
 ;;; 整数小なり
 (define-primitive (char< si env arg1 arg2)
@@ -608,6 +598,11 @@
 ;; offset a0+offset のアドレスの値を読み込みます
 (define (emit-heap-load offset)
   (emit "	lw a0, ~s(a0)" offset))
+
+;;;; eq?
+(define-primitive (eq? si env arg1 arg2)
+  (emit-binop si env arg1 arg2)
+  (emit-cmp-bool))
 
 ;;;; ペア関連
 (define pairtag #b001)			; ペアのタグ
