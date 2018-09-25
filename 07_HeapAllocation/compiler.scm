@@ -588,7 +588,7 @@
 ;; size 確保するバイト数
 (define (emit-heap-alloc size)
   (let ((alloc-size (* (+ (div (- size 1) heap-cell-size) 1) heap-cell-size)))
-    (emit "	mv s0, a0")
+    (emit "	mv a0, s0")
     (emit "	addi s0, s0, ~s" alloc-size)))
 
 ;;; スタックの値をヒープにコピーします。
