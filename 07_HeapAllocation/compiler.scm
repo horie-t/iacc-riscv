@@ -585,6 +585,7 @@
 
 ;;;; ヒープ領域関連
 (define objshift 2)
+(define objmask #x07)
 
 ;;; ヒープメモリ確保時の最低サイズ(バイト)
 (define heap-cell-size (ash 1 objshift))
@@ -626,9 +627,12 @@
 ;;; pair?
 (define-primitive (pair? si env arg)
   (emit-expr si env arg)
-  (emit "  and $~s, %al" objmask)
-  (emit "  cmp $~s, %al" pairtag)
-  (emit-cmp-bool))
+  (emit "	andi a0, a0, ~s" objmask)
+  (emit "	li t0, ~s" pairtag)
+  (emit "	sub a0, a0, t0")
+  (emit "	seqz a0, a0")
+  (emit "	slli a0, a0, ~s" bool_bit)
+  (emit "	ori  a0, a0, ~s" bool_f))
 
 ;;; car
 (define-primitive (car si env arg)

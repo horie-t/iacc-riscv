@@ -66,6 +66,8 @@
 		(fact 5)) "120\n")
     ("heap car"    (car (cons 1 2)) "1\n")
     ("heap cdr"    (cdr (cons 1 2)) "2\n")
+    ("heap pair?" (pair? (cons 1 2))   "#t\n")
+    ("heap pair? not" (pair? 1)        "#f\n")
     ("begin" (begin (fx+ 1 2) (fx- 2 1)) "1\n")
     ("body seq" (let ((apair (cons 1 2)))
 		  (cons 3 apair)
