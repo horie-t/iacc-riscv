@@ -17,7 +17,7 @@
 (define unique-label
   (let ((count 0))
     (lambda ()
-      (let ((L (format "L_~s" count)))
+      (let ((L (string->symbol (format "L_~s" count)))) ; シンボルに変換する必要はある?
 	(set! count (+ count 1))
 	L))))
 
@@ -562,17 +562,44 @@
       (emit-stack-load si)
       (emit-stack-save (+ si delta))
       (move-arguments (- si wordsize) delta (cdr args))))
-  (cond
-   ((not tail)
-    (emit-arguments (- si (* 2 wordsize)) (cdr expr))
-    (emit-adjust-base si)
-    (emit-call (lookup (car expr) env))
-    (emit-adjust-base (- si)))
-   (else
-    (emit-arguments si (cdr expr))
-    (move-arguments si (- si) (cdr expr))
-    (emit-jmp-tail (lookup (car expr) env)))))
+  (let ((target-proc (proc (car expr) env)))
+    (cond
+     ((not tail)
+      (emit-arguments (- si (* 2 wordsize)) (cdr expr))
+      (when (not target-proc)		; クロージャの手続き呼び出しの場合
+	    (emit-expr si env (car expr))
+	    (emit "	sw a1, ~s(sp)" si)
+	    (emit "	mv a1, a0")
+	    (emit-heap-load (- closuretag)))
+      (emit-adjust-base si)
+      (cond
+       ((not target-proc)
+	(emit-call))
+       (else
+	(emit-call target-proc)))
+      (emit-adjust-base (- si))
+      (when (not target-proc)
+	    (emit "	lw a1, ~s(sp)" si)))
+     (else				; tail
+      (emit-arguments si (cdr expr))
+      (when (not target-proc)
+	    (emit-expr si env (car expr))
+	    (emit "	mv a1, a0"))
+      (move-arguments si (- si) (cdr expr))
+      (when (not target-proc)
+	    (emit "	mv a0, a1")
+	    (emit-heap-load (- closuretag)))
+      (cond
+       ((not target-proc)
+	(emit-jmp-tail))
+       (else
+	(emit-jmp-tail target-proc)))))))
 
+;;; Scheme手続きに対応する、アセンブリ言語のラベルを返します。見つからなかった場合は#fを返します。
+(define (porc expr env)
+  (and (variable? expr)
+       (let ((val (lookup expr env)))
+	 (and (symbol? val) val))))
 
 ;;;; ヒープ領域オブジェクト関連
 (define objshift 2)
@@ -759,6 +786,32 @@
   (emit "	slli a0, a0, ~s" charshift)
   (emit "	ori a0, a0, ~s" chartag))
 
+;;;; クロージャ・オブジェクト関連
+(define closuretag  #x02)		; クロージャ・オブジェクトタグ
+
+;;; クロージャかどうかを返します
+(define (closure? expr)
+  (tagged-form? 'closure expr))
+
+;;; 
+(define (emit-closure si env expr)
+  (let ((label (cadr expr))
+	(free-vars (cddr expr)))
+    (emit-heap-alloc (* (+ (length free-vars) 1) wordsize))
+    (emit "	la t0, ~s" label)
+    (emit "	sw t0, 0(a0)")
+    (unless (null? free-vars)
+	    (emit "	mv t0, a0")	; しばらくは、t0がクロージャ・オブジェクトの開始アドレスを指す
+	    (let loop ((free-vars free-vars)
+		       (count 1))
+	      (unless (null? free-vars)	; 自由変数があれば、評価してヒープに保存
+		      (emit-variable-ref si env (car free-vars))
+		      (emit "	sw a0, ~s(t0)") (* count wordsize)
+		      (loop (cdr free-vars) (+ count 1))))
+	    (emit "	mv a0, t0"))	; クロージャ・オブジェクトの開始アドレスを戻す
+    (emit "	ori a0, a0, ~s" closuretag)))
+
+
 ;;;; コンパイラ・メイン処理
 
 ;;; 手続き内部の式のコンパイル
@@ -815,13 +868,23 @@
   (emit "	sw ra, 0(sp)")
   (emit-tail-expr (- wordsize) env expr))
 
-(define (emit-call label)
-  (emit "	call ~a" label))
+(define (emit-call . labels)
+  (cond
+   ((null? labels)
+    (emit "	lw t0, 0(a0)")
+    (emit "	jalr t0"))
+   (else
+    (emit "	call ~a" label))))
 
 ;;; 末尾呼び出しの最後のジャンプ
-(define (emit-jmp-tail label)
+(define (emit-jmp-tail . labels)
   (emit "	addi sp, sp, ~s" wordsize)
-  (emit "	j ~a" label))
+  (cond
+   ((null? lables)
+    (emit "	lw t0, 0(a0)")
+    (emit "	jr t0"))
+   (else
+    (emit "	j ~a" (car labels)))))
 
 (define (emit-program program)
   (emit-function-header "scheme_entry")
