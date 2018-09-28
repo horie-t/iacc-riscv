@@ -884,7 +884,7 @@
     (emit "	ori a0, a0, ~s" closuretag)))
 
 ;;; code特殊形式を使った式に変換して、クロージャに対応します
-;;; top-envと、labels特殊形式のリストを、返します。
+;;; labels特殊形式と、top-envとのリストを返します。
 (define (closure-convertion expr)
   (let ((labels '())
 	(top-env '())
@@ -926,7 +926,7 @@
     (let* ((body (if (letrec? expr)
 		     (transform-letrec expr)
 		     (transform expr))))
-      (list top-env (list 'labels labels body)))))
+      (list (list 'labels labels body) top-env))))
 
 ;;;; コンパイラ・メイン処理
 
@@ -978,12 +978,6 @@
   (emit "	.type ~a, @function" f)
   (emit-label f))
 
-(define (emit-scheme-entry expr env)
-  (emit-function-header "L_scheme_entry")
-  (emit "	addi sp, sp, ~s" (- wordsize))
-  (emit "	sw ra, 0(sp)")
-  (emit-tail-expr (- wordsize) env expr))
-
 (define (emit-call . labels)
   (cond
    ((null? labels)
@@ -1002,21 +996,39 @@
    (else
     (emit "	j ~a" (car labels)))))
 
+;;;;
+(define (emit-scheme-entry expr env)
+  (emit-function-header "L_scheme_entry")
+  (emit "	addi sp, sp, ~s" (- wordsize))
+  (emit "	sw ra, 0(sp)")
+  (emit-tail-expr (- wordsize) env expr))
+
+;;;;
+(define (emit-labels labels-expr env)
+  (let* ((bindings (cadr labels-expr))
+	 (labels (map car bindings))
+	 (codes (map cadr bindings)))
+    (for-each (emit-code env) codes labels)
+    (emit-scheme-entry (caddr labels-expr) env)))
+
+;;;; 
+(define (emit-top top)
+  (emit-labels (car top) (cadr top)))
+
 (define (emit-program program)
   (emit-function-header "scheme_entry")
-  (emit "	addi sp, sp, ~s" (- (* wordsize 2)))
+  (emit "	addi sp, sp, ~s" (- (* wordsize 3)))
   (emit "	sw ra, 0(sp)")
   (emit "	sw s0, ~s(sp)" wordsize)
+  (emit "	sw a1, ~s(sp)" (* wordsize 2))
   (emit "	mv s0, a0")		; heapの空きアドレスは、s0レジスタに保存する。
   (emit "	call L_scheme_entry")
   (emit "	lw ra, 0(sp)")
   (emit "	lw s0, ~s(sp)" wordsize)
-  (emit "	addi sp, sp, ~s" (* wordsize 2))
+  (emit "	lw a1, ~s(sp)" (* wordsize 2))
+  (emit "	addi sp, sp, ~s" (* wordsize 3))
   (emit "	ret")
-  (cond
-   ((letrec? program) (emit-letrec program))
-   (else
-    (emit-scheme-entry program ()))))
+  (emit-top (closure-convertion program)))
 
 ;;;; 自動テスト関連
 
