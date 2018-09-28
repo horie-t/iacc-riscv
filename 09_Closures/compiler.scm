@@ -82,7 +82,7 @@
 (define (bulk-extend-env vars vals env)
   (append (map list vars vals) env))
 
-;;; 環境から変数の値のスタック・インデックスを検索します
+;;; 環境から変数の値を検索します
 (define (lookup var env)
   (cond
    ((assv var env)
@@ -499,44 +499,79 @@
 (define (make-begin seq)
   (cons 'begin seq))
 
-;;; 変数参照
+;;;; 変数参照関連
+;; 変数の表現書式は以下の3通りあります。
+;; 数値: スタック上の変数
+;; ('free offset): 自由変数。offsetは、クロージャ・オブジェクト内でのオフセット
+;; シンボル: クロージャを指している
+
+;;; 変数かどうかを返します。
 (define (variable? expr)
   (symbol? expr))
 
+;;; 自由変数を作成します。
+;; offset クロージャ・オブジェクト内でのオフセット
+(define (free-var offset)
+  (list 'free (- offset closuretag)))
+
+;;; 変数が自由変数かどうかを判定します。
+;; var 判定対象変数
+(define (free-var? var)
+  (tagged-form? 'free var))
+
+;;;
 (define (emit-variable-ref env var)
   (cond
    ((lookup var env)
-    (let ((val (lookup var env)))
+    (let ((v (lookup var env)))
       (cond
-       ((number? val)
-	(emit-stack-load val))
+       ((free-var? v)
+	(emit "	lw a0, ~s(a1)" (cadr v)))
+       ((number? v)
+	(emit-stack-load v))
+       ((symbol? v)
+	(emit-closure si env (make-closure v '())))
        (else (error "emit-variable-ref. "
-		    (format #t "looked up unknown value ~s for var ~s" val var))))))))
+		    (format #t "looked up unknown value ~s for var ~s" v var))))))
+   (else (error "emit-variable-ref. " (format "undefined variable ~s" var)))))
 
-;;;; lambda
-(define (lambda-formals expr)
-  (cadr expr))
-
-(define (lambda-body expr)
-  (caddr expr))
-
-(define (emit-lambda env)
+;;;; code特殊形式
+(define (emit-code env)
   (lambda (expr label)
     (emit-function-header label)
     (emit "	addi sp, sp, ~s" (- wordsize))
     (emit "	sw ra, 0(sp)")
-    (let ((fmls (lambda-formals expr))
-	  (body (lambda-body expr)))
-      (let f ((fmls fmls)
-	      (si (- wordsize))
-	      (env env))
-	(cond
-	 ((null? fmls)
-	  (emit-tail-expr si env body))
-	 (else
-	  (f (cdr fmls)
-	     (- si wordsize)
-	     (extend-env (car fmls) si env))))))))
+    (let ((formals (cadr expr))
+	  (free-vars (caddr expr))
+	  (body (cadddr expr)))
+      (extend-env-with (- wordsize) env formals
+		       (lambda (si env)
+			 (close-env-with wordsize env free-vars
+					 (lambda (env)
+					   (emit-tail-expr si env body))))))))
+
+;;; 手続き呼び出しの引数で環境を拡張して、kを実行します。
+;; lvars 引数のリスト
+;; k 拡張された環境で実行したい手続き? thunk?
+(define (extend-env-with si env lvars k)
+  (if (null? lvars)
+      (k si env)
+      (extend-env-with (next-stack-index si)
+		       (extend-env (car lvars) si env)
+		       (cdr lvars)
+		       k)))
+
+;;; 自由変数で環境を拡張して、kを実行します。 (closure対応に必要)
+;; offset クロージャ・オブジェクトの開始アドレスからのオフセット
+;; lvars 自由変数のリスト
+(define (close-env-with offset env lvars k)
+  (if (null? lvars)
+      (k env)
+      (close-env-with (+ offset wordsize)
+		      (extend-env (car lvars) (free-var offset) env)
+		      (cdr lvars)
+		      k)))
+
 
 ;;;; app関連
 ;;; apply可能かどうか
@@ -788,6 +823,10 @@
 
 ;;;; クロージャ・オブジェクト関連
 (define closuretag  #x02)		; クロージャ・オブジェクトタグ
+
+;;; クロージャ特殊形式を作成します。
+(define (make-closure label free-vars)
+  (cons 'closure (cons label free-vars)))
 
 ;;; クロージャかどうかを返します
 (define (closure? expr)
