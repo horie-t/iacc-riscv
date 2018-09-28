@@ -1,3 +1,4 @@
+(import (srfi 1))
 (import (rnrs hashtables))
 
 (load "test_cases.scm")
@@ -341,6 +342,12 @@
   (emit-expr si env (list 'char< arg1 arg2)) ; 小なりを判定して、あとで否定する
   (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
 
+;;;; 特殊形式関連
+;;; 特殊形式、プリミティブのシンボルかどうかを判定します。
+(define (special? symbol)
+  (or (member symbol '(if begin let let* letrec lambda closure))
+      (primitive? symbol))
+
 ;;;; 条件式
 
 ;;; if形式
@@ -468,14 +475,11 @@
 (define (letrec? expr)
   (tagged-form? 'letrec expr))
 
-(define (emit-letrec expr)
-  (let* ((bindings (let-bindings expr))
-	 (lvars (map car bindings))
-	 (lambdas (map cadr bindings))
-	 (labels (unique-labels lvars))
-	 (env (bulk-extend-env lvars labels ())))
-    (for-each (emit-lambda env) lambdas labels)
-    (emit-scheme-entry (let-body expr) env)))
+
+;;; let系形式のどれかか、どうかを返します。
+(define (any-let? expr)
+  (and (pair? expr)
+       (member (car expr) '(let let* letrec))))
 
 ;;;; begin形式
 ;;; begin形式かどうかを返します。
@@ -519,6 +523,32 @@
 (define (free-var? var)
   (tagged-form? 'free var))
 
+;;; 式の中から自由変数を取得します。
+(define (get-free-vars expr)
+  (cond
+   ((and (variable? expr) (not (special? expr)))
+    (list expr))
+   ((lambda? expr)
+    (filter (lambda (v)
+	      (not (member v (cadr expr))))
+	    (get-free-vars (caddr expr))))
+   ((let? expr)
+    (append (append-map get-free-vars (map cadr (let-bindings expr)))
+	    (filter (lambda (v)
+		      (not (member v (map car (let-bindings expr)))))
+		    (get-free-vars (let-body expr)))))
+   ((let*? expr)
+    (if (null? (let-bindings expr)
+	       (get-free-vars (let-body expr))
+	       (append (get-free-vars (cadr (car (let-bindings expr))))
+		       (filter (lambda (v)
+				 (not (eq? v (car (car (let-bindings expr))))))
+			       (get-free-vars (list 'let* (cdr (let-bindings expr))
+						    (let-body expr))))))))
+   ((list? expr)
+    (append-map get-free-vars expr))
+   (else '())))
+
 ;;;
 (define (emit-variable-ref env var)
   (cond
@@ -536,6 +566,9 @@
    (else (error "emit-variable-ref. " (format "undefined variable ~s" var)))))
 
 ;;;; code特殊形式
+(define (make-code formals free-vars body)
+  (list 'code formals free-vars body))
+
 (define (emit-code env)
   (lambda (expr label)
     (emit-function-header label)
@@ -850,6 +883,50 @@
 	    (emit "	mv a0, t0"))	; クロージャ・オブジェクトの開始アドレスを戻す
     (emit "	ori a0, a0, ~s" closuretag)))
 
+;;; code特殊形式を使った式に変換して、クロージャに対応します
+;;; top-envと、labels特殊形式のリストを、返します。
+(define (closure-convertion expr)
+  (let ((labels '())
+	(top-env '())
+	(top-procs '()))
+    (define (transform-letrec letrec-expr)
+      (let ((top-bindings		; letの変数名とラベルを結び付ける
+	     (map (lambda (binging)
+		    (list (car bindings) (unique-label)))
+		  (cadr letrec-expr))))
+	(set! top-env (make-initial-env top-bindings))
+	(set! top-proc (map car top-bindings))
+	(for-each (lambda (lvar-lambda-bind lvar-label-bind)
+		    (transform (cadr lvar-lambda-bind) (cadr lvar-label-bind)))
+		  (cadr letrec-expr) top-bindings)
+	(transform (caddr letrec-expr))))
+    (define (transform expr . label)
+      (cond
+       ((lambda? expr)
+	(let ((label (or (and (not (null? label)) (car lable)) ; labelが指定されていなかったらlabelを生成
+			 (unique-label)))
+	      (free-vars (filter (lambda (v)
+				   (not (member v top-procs)))
+				 (get-free-vars expr))))
+	  (set! labels
+		(cons (list label (make-code (cadr expr)
+					     free-vars
+					     (transform (caddr expr))))
+		      labels))
+	  (make-closure label free-vars)))
+       ((any-let? expr)
+	(list (car expr)
+	      (map (lambda (binding)
+		     (list (car binding) (transform (cadr binding)))))
+	      (transform (cddr expr))))
+       ((list? expr)
+	(map transform expr))
+       (else
+	expr)))
+    (let* ((body (if (letrec? expr)
+		     (transform-letrec expr)
+		     (transform expr))))
+      (list top-env (list 'labels labels body)))))
 
 ;;;; コンパイラ・メイン処理
 
