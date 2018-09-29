@@ -95,4 +95,7 @@
     ("heap string set!" (let ((str (make-string 4)))
 			  (string-set! str 3 #\z)
 			  (string-ref str 3))         "z\n")
+    ("closure" (let ((n 12))
+		 (let ((f (lambda (m) (fx+ n m))))
+		   (f 100)))                          "112\n")
     ))

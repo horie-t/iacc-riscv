@@ -49,8 +49,6 @@
 ;;; スタックに値を保存します。
 ;; si スタック・インデックス
 (define (emit-stack-save si)
-  ;; (if (= si -20)
-  ;;     (error "-20"))
   (emit "	sw a0, ~s(sp)" si))
 
 (define (emit-stack-load si)
@@ -552,7 +550,7 @@
    (else '())))
 
 ;;;
-(define (emit-variable-ref env var)
+(define (emit-variable-ref si env var)
   (cond
    ((lookup var env)
     (let ((v (lookup var env)))
@@ -885,7 +883,7 @@
 		       (count 1))
 	      (unless (null? free-vars)	; 自由変数があれば、評価してヒープに保存
 		      (emit-variable-ref si env (car free-vars))
-		      (emit "	sw a0, ~s(t0)") (* count wordsize)
+		      (emit "	sw a0, ~s(t0)" (* count wordsize))
 		      (loop (cdr free-vars) (+ count 1))))
 	    (emit "	mv a0, t0"))	; クロージャ・オブジェクトの開始アドレスを戻す
     (emit "	ori a0, a0, ~s" closuretag)))
@@ -965,7 +963,8 @@
 (define (emit-any-expr si env tail expr)
   (cond
    ((immediate? expr) (emit-immediate expr) (emit-ret-if tail)) ; 即値の場合は、si、envを必要としない。
-   ((variable? expr)  (emit-variable-ref env expr) (emit-ret-if tail))
+   ((variable? expr)  (emit-variable-ref si env expr) (emit-ret-if tail))
+   ((closure? expr)   (emit-closure si env expr) (emit-ret-if tail))
    ((if? expr)        (emit-if si env tail expr))
    ((and? expr)       (emit-and si env expr) (emit-ret-if tail))
    ((or? expr)        (emit-or si env expr) (emit-ret-if tail))
@@ -980,7 +979,7 @@
   (emit "~a:" label))
 
 (define (emit-function-header f)
-  (emit "\n")
+  (emit "")
   (emit "	.text")
   (emit "	.globl ~a" f)
   (emit "	.type ~a, @function" f)
@@ -999,8 +998,7 @@
   (emit "	addi sp, sp, ~s" wordsize)
   (cond
    ((null? labels)
-    (emit "	lw t0, 0(a0)")
-    (emit "	jr t0"))
+    (emit "	jr a0"))
    (else
     (emit "	j ~a" (car labels)))))
 
@@ -1036,8 +1034,6 @@
   (emit "	lw a1, ~s(sp)" (* wordsize 2))
   (emit "	addi sp, sp, ~s" (* wordsize 3))
   (emit "	ret")
-  ;; (display (closure-convertion program))
-  ;; (newline)
   (emit-top (closure-convertion program)))
 
 ;;;; 自動テスト関連
