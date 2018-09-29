@@ -669,7 +669,7 @@
 	(emit-jmp-tail target-proc)))))))
 
 ;;; Scheme手続きに対応する、アセンブリ言語のラベルを返します。見つからなかった場合は#fを返します。
-(define (porc expr env)
+(define (proc expr env)
   (and (variable? expr)
        (let ((val (lookup expr env)))
 	 (and (symbol? val) val))))
@@ -896,8 +896,8 @@
 	(top-procs '()))
     (define (transform-letrec letrec-expr)
       (let ((top-bindings		; letの変数名とラベルを結び付ける
-	     (map (lambda (binging)
-		    (list (car bindings) (unique-label)))
+	     (map (lambda (binding)
+		    (list (car binding) (unique-label)))
 		  (cadr letrec-expr))))
 	(set! top-env (make-initial-env top-bindings))
 	(set! top-proc (map car top-bindings))
@@ -908,7 +908,7 @@
     (define (transform expr . label)
       (cond
        ((lambda? expr)
-	(let ((label (or (and (not (null? label)) (car lable)) ; labelが指定されていなかったらlabelを生成
+	(let ((label (or (and (not (null? label)) (car label)) ; labelが指定されていなかったらlabelを生成
 			 (unique-label)))
 	      (free-vars (filter (lambda (v)
 				   (not (member v top-procs)))
@@ -924,7 +924,7 @@
 	      (map (lambda (binding)
 		     (list (car binding) (transform (cadr binding))))
 		   (let-bindings expr))
-	      (transform (cddr expr))))
+	      (transform (let-body expr))))
        ((list? expr)
 	(map transform expr))
        (else
@@ -996,7 +996,7 @@
 (define (emit-jmp-tail . labels)
   (emit "	addi sp, sp, ~s" wordsize)
   (cond
-   ((null? lables)
+   ((null? labels)
     (emit "	lw t0, 0(a0)")
     (emit "	jr t0"))
    (else
