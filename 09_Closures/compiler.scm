@@ -49,6 +49,8 @@
 ;;; スタックに値を保存します。
 ;; si スタック・インデックス
 (define (emit-stack-save si)
+  ;; (if (= si -20)
+  ;;     (error "-20"))
   (emit "	sw a0, ~s(sp)" si))
 
 (define (emit-stack-load si)
@@ -638,7 +640,7 @@
   (let ((target-proc (proc (car expr) env)))
     (cond
      ((not tail)
-      (emit-arguments (- si (* 2 wordsize)) (cdr expr))
+      (emit-arguments (- si (* 2 wordsize)) (cdr expr)) ; si=-12?
       (when (not target-proc)		; クロージャの手続き呼び出しの場合
 	    (emit-expr si env (car expr))
 	    (emit "	sw a1, ~s(sp)" si)
@@ -658,7 +660,7 @@
       (when (not target-proc)
 	    (emit-expr si env (car expr))
 	    (emit "	mv a1, a0"))
-      (move-arguments si (- si) (cdr expr))
+      (move-arguments si (- (+ si wordsize)) (cdr expr))
       (when (not target-proc)
 	    (emit "	mv a0, a1")
 	    (emit-heap-load (- closuretag)))
@@ -900,7 +902,7 @@
 		    (list (car binding) (unique-label)))
 		  (cadr letrec-expr))))
 	(set! top-env (make-initial-env top-bindings))
-	(set! top-proc (map car top-bindings))
+	(set! top-procs (map car top-bindings))
 	(for-each (lambda (lvar-lambda-bind lvar-label-bind)
 		    (transform (cadr lvar-lambda-bind) (cadr lvar-label-bind)))
 		  (cadr letrec-expr) top-bindings)
@@ -990,7 +992,7 @@
     (emit "	lw t0, 0(a0)")
     (emit "	jalr t0"))
    (else
-    (emit "	call ~a" label))))
+    (emit "	call ~a" (car labels)))))
 
 ;;; 末尾呼び出しの最後のジャンプ
 (define (emit-jmp-tail . labels)
@@ -1034,6 +1036,8 @@
   (emit "	lw a1, ~s(sp)" (* wordsize 2))
   (emit "	addi sp, sp, ~s" (* wordsize 3))
   (emit "	ret")
+  ;; (display (closure-convertion program))
+  ;; (newline)
   (emit-top (closure-convertion program)))
 
 ;;;; 自動テスト関連
