@@ -638,7 +638,7 @@
   (let ((target-proc (proc (car expr) env)))
     (cond
      ((not tail)
-      (emit-arguments (- si (* 2 wordsize)) (cdr expr)) ; si=-12?
+      (emit-arguments (- si (* 2 wordsize)) (cdr expr))
       (when (not target-proc)		; クロージャの手続き呼び出しの場合
 	    (emit-expr si env (car expr))
 	    (emit "	sw a1, ~s(sp)" si)
@@ -988,8 +988,7 @@
 (define (emit-call . labels)
   (cond
    ((null? labels)
-    (emit "	lw t0, 0(a0)")
-    (emit "	jalr t0"))
+    (emit "	jalr a0"))
    (else
     (emit "	call ~a" (car labels)))))
 
