@@ -346,7 +346,7 @@
 ;;; 特殊形式、プリミティブのシンボルかどうかを判定します。
 (define (special? symbol)
   (or (member symbol '(if begin let let* letrec lambda closure))
-      (primitive? symbol))
+      (primitive? symbol)))
 
 ;;;; 条件式
 
@@ -538,13 +538,13 @@
 		      (not (member v (map car (let-bindings expr)))))
 		    (get-free-vars (let-body expr)))))
    ((let*? expr)
-    (if (null? (let-bindings expr)
-	       (get-free-vars (let-body expr))
-	       (append (get-free-vars (cadr (car (let-bindings expr))))
-		       (filter (lambda (v)
-				 (not (eq? v (car (car (let-bindings expr))))))
-			       (get-free-vars (list 'let* (cdr (let-bindings expr))
-						    (let-body expr))))))))
+    (if (null? (let-bindings expr))
+	(get-free-vars (let-body expr))
+	(append (get-free-vars (cadr (car (let-bindings expr))))
+		(filter (lambda (v)
+			  (not (eq? v (car (car (let-bindings expr))))))
+			(get-free-vars (list 'let* (cdr (let-bindings expr))
+					     (let-body expr)))))))
    ((list? expr)
     (append-map get-free-vars expr))
    (else '())))
@@ -564,6 +564,11 @@
        (else (error "emit-variable-ref. "
 		    (format #t "looked up unknown value ~s for var ~s" v var))))))
    (else (error "emit-variable-ref. " (format "undefined variable ~s" var)))))
+
+;;;; lambda特殊形式
+;;; lamda特殊形式かどうかを返します。
+(define (lambda? expr)
+  (tagged-form? 'lambda expr))
 
 ;;;; code特殊形式
 (define (make-code formals free-vars body)
@@ -917,7 +922,8 @@
        ((any-let? expr)
 	(list (car expr)
 	      (map (lambda (binding)
-		     (list (car binding) (transform (cadr binding)))))
+		     (list (car binding) (transform (cadr binding))))
+		   (let-bindings expr))
 	      (transform (cddr expr))))
        ((list? expr)
 	(map transform expr))
