@@ -29,6 +29,22 @@
 	 (format "~a_~s" (unique-label) var))
        vars))
 
+;;; ユニーク変数生成
+;; 重複のない、変数名を返します。
+(define unique-name
+  (let ((counts '()))  ; 既に出現した名前と、出現回数の連想リスト。例: ((x . 1) (a . 3) (cnt . 2))
+    (lambda (name)
+      (let ((entry (assv name counts)))
+	(cond
+	 (entry
+	  (let* ((count (cdr entry))
+		 (new-name (string->symbol (format "~s_~s" name count))))
+	    (set-cdr! entry (+ count 1))
+	    new-name)))
+	 (else
+	  (set! counts (cons (cons name 1) counts))
+	  name)))))
+
 ;;; 値比較ユーティリティ
 ;; a0と値を比較し、booleanオブジェクトをa0に設定します。
 ;; args 比較する即値、省略時はt0と比較
@@ -345,7 +361,7 @@
 ;;;; 特殊形式関連
 ;;; 特殊形式、プリミティブのシンボルかどうかを判定します。
 (define (special? symbol)
-  (or (member symbol '(if begin let let* letrec lambda closure))
+  (or (member symbol '(if begin let lambda closure set!))
       (primitive? symbol)))
 
 ;;;; 条件式
@@ -353,7 +369,9 @@
 ;;; if形式
 ;;; if形式かどうかを返します
 (define (if? expr)
-  (tagged-form? 'if expr))
+  (and (tagged-form? 'if expr)
+       (or (= (length cdr expr) 3)
+	   (error "if? " (format #t "malformed if ~s" expr)))))
 
 ;;; if形式の述部(predicate)を取り出します。
 (define (if-test expr)
@@ -425,11 +443,14 @@
 (define (let-bindings expr)
   (cadr expr))
 
-;;; let形式のbody部分を返します。
+;;; let形式のbody部分を返します。body部分が複数の式からなる時は、begin形式に変換します
 (define (let-body expr)
   (if (null? (cdddr expr))
       (caddr expr)
       (make-begin (cddr expr))))
+
+(define (let-body-seq expr)
+  (cddr expr))
 
 (define (emit-let si env tail expr)
   (define (process-let bindings si new-env)
@@ -438,11 +459,11 @@
       (emit-any-expr si new-env tail (let-body expr)))
      (else
       (let ((b (car bindings)))
-	(emit-expr si env (cadr b))
+	(emit-expr si env (rhs b))
 	(emit-stack-save si)
 	(process-let (cdr bindings)
 		     (next-stack-index si)
-		     (extend-env (car b) si new-env))))))
+		     (extend-env (lhs b) si new-env))))))
   (process-let (let-bindings expr) si env))
 
 ;;;; let*形式
@@ -473,7 +494,7 @@
 ;;;; letrec形式
 ;;; letrec形式かどうかを返します。
 (define (letrec? expr)
-  (tagged-form? 'letrec expr))
+  (or (tagged-form? 'letrec expr) (tagged-form? 'letrec* expr)))
 
 
 ;;; let系形式のどれかか、どうかを返します。
@@ -500,8 +521,13 @@
     (emit-expr si env (car seq))
     (emit-seq si env tail (cdr seq)))))
 
-(define (make-begin seq)
-  (cons 'begin seq))
+(define (make-begin lst)
+  (if (null? (cdr lst))
+      (car lst)
+      (cons 'begin lst)))
+
+(define (make-body lst)
+  (make-begin lst))
 
 ;;;; 変数参照関連
 ;; 変数の表現書式は以下の3通りあります。
@@ -526,7 +552,7 @@
 ;;; 式の中から自由変数を取得します。
 (define (get-free-vars expr)
   (cond
-   ((and (variable? expr) (not (special? expr)))
+   ((variable? expr)
     (list expr))
    ((lambda? expr)
     (filter (lambda (v)
@@ -537,16 +563,11 @@
 	    (filter (lambda (v)
 		      (not (member v (map car (let-bindings expr)))))
 		    (get-free-vars (let-body expr)))))
-   ((let*? expr)
-    (if (null? (let-bindings expr))
-	(get-free-vars (let-body expr))
-	(append (get-free-vars (cadr (car (let-bindings expr))))
-		(filter (lambda (v)
-			  (not (eq? v (car (car (let-bindings expr))))))
-			(get-free-vars (list 'let* (cdr (let-bindings expr))
-					     (let-body expr)))))))
    ((list? expr)
-    (append-map get-free-vars expr))
+    (append-map get-free-vars (if (and (not (null? expr))
+				       (special? (car expr)))
+				  (cdr expr)
+				  expr)))
    (else '())))
 
 ;;;
@@ -559,16 +580,47 @@
 	(emit "	lw a0, ~s(a1)" (cadr v)))
        ((number? v)
 	(emit-stack-load v))
-       ((symbol? v)
-	(emit-closure si env (make-closure v '())))
        (else (error "emit-variable-ref. "
 		    (format #t "looked up unknown value ~s for var ~s" v var))))))
    (else (error "emit-variable-ref. " (format "undefined variable ~s" var)))))
+
+;;;; set!関連
+;;; set!特殊形式かどうかを返します
+(define (set? expr)
+  (tagged-form? 'set! expr))
+
+;;; set!特殊形式を生成します。
+;; lhs (left hand side)
+;; rhs (right hand side)
+(define (make-set! lhs rhs)
+  (list 'set! lhs rhs))
+
+;;; set!特殊形式の代入されるシンボルを返します
+(define (set-lhs expr)
+  (cadr expr))
+
+;;; set!特殊形式の代入する式を返します。
+(define (set-rhs expr)
+  (caddr expr))
 
 ;;;; lambda特殊形式
 ;;; lamda特殊形式かどうかを返します。
 (define (lambda? expr)
   (tagged-form? 'lambda expr))
+
+;;; lambda特殊形式の引数部分を返します。
+(define (lambda-formals expr)
+  (cadr expr))
+
+;;; lambda特殊形式の本体部分を返します。
+(define (lambda-body expr)
+  (make-body (cddr expr)))
+
+;;; lambda特殊形式を生成します。
+;; formals 引数リスト
+;; body 本体
+(define (make-lambda formals body)
+  (list 'lambda formals body))
 
 ;;;; code特殊形式
 (define (make-code formals free-vars body)
@@ -635,38 +687,25 @@
       (emit-stack-load si)
       (emit-stack-save (+ si delta))
       (move-arguments (- si wordsize) delta (cdr args))))
-  (let ((target-proc (proc (car expr) env)))
-    (cond
-     ((not tail)
-      (emit-arguments (- si (* 2 wordsize)) (cdr expr))
-      (when (not target-proc)		; クロージャの手続き呼び出しの場合
-	    (emit-expr si env (car expr))
-	    (emit "	sw a1, ~s(sp)" si)
-	    (emit "	mv a1, a0")
-	    (emit-heap-load (- closuretag)))
-      (emit-adjust-base si)
-      (cond
-       ((not target-proc)
-	(emit-call))
-       (else
-	(emit-call target-proc)))
-      (emit-adjust-base (- si))
-      (when (not target-proc)
-	    (emit "	lw a1, ~s(sp)" si)))
-     (else				; tail
-      (emit-arguments si (cdr expr))
-      (when (not target-proc)
-	    (emit-expr si env (car expr))
-	    (emit "	mv a1, a0"))
-      (move-arguments si (- (+ si wordsize)) (cdr expr))
-      (when (not target-proc)
-	    (emit "	mv a0, a1")
-	    (emit-heap-load (- closuretag)))
-      (cond
-       ((not target-proc)
-	(emit-jmp-tail))
-       (else
-	(emit-jmp-tail target-proc)))))))
+  (cond
+   ((not tail)
+    (emit-arguments (- si (* 2 wordsize)) (cdr expr))
+    (emit-expr si env (car expr))
+    (emit "	sw a1, ~s(sp)" si)
+    (emit "	mv a1, a0")
+    (emit-heap-load (- closuretag))
+    (emit-adjust-base si)
+    (emit-call)
+    (emit-adjust-base (- si))
+    (emit "	lw a1, ~s(sp)" si))
+   (else				; tail
+    (emit-arguments si (cdr expr))
+    (emit-expr (- si (* wordsize (length (cdr expr)))) env (car expr))
+    (emit "	mv a1, a0")
+    (move-arguments si (- (+ si wordsize)) (cdr expr))
+    (emit "	mv a0, a1")
+    (emit-heap-load (- closuretag))
+    (emit-jmp-tail))))
 
 ;;; Scheme手続きに対応する、アセンブリ言語のラベルを返します。見つからなかった場合は#fを返します。
 (define (proc expr env)
@@ -888,33 +927,221 @@
 	    (emit "	mv a0, t0"))	; クロージャ・オブジェクトの開始アドレスを戻す
     (emit "	ori a0, a0, ~s" closuretag)))
 
+;;;; 前処理の変換
+
+;;; マクロ変換
+(define (macro-expand expr)
+  (define (transform expr bound-vars)
+    (cond
+     ((set? expr)
+      (make-set! (set-lhs expr) (transform (set-rhs expr) bound-vars)))
+     ((lambda? expr)
+      (make-lambda
+       (lambda-formals expr)
+       (transform (lambda-body expr)
+		  (append (lambda-formals expr) bound-vars))))
+     ((let? expr)
+      (make-let
+       (let-kind expr)
+       (map (lambda (binding)
+	      (bind (lhs binding) (transform (rhs binding) bound-vars)))
+	    (let-bindings expr))
+       (transform (let-body)
+		  (append (map lhs (let-bindings expr)) bound-vars))))
+     ((let*? expr)
+      (transform
+       (if (null? let-bindings)
+	   (let-body expr)
+	   (make-let
+	    'let
+	    (list (car (let-bindings expr)))
+	    (make-let
+	     'let*
+	     (cdr (let-bindings expr))
+	     (let-body expr))))
+       bound-vars))
+     ((letrec? expr)
+      (transform
+       (make-let
+	'let
+	(map (lambda (binding)
+	       (bind (lhs binding) '#f))
+	     (let-bindings expr))
+	(make-body
+	 (append
+	  (map (lambda (binding)
+		 (make-set! (lhs binding) (rhs binding)))
+	       (let-body-seq expr)))))
+       bound-vars))
+     ((tagged-form? 'and expr)
+      (cond
+       ((null? (cdr expr))
+	#t)
+       ((null? (cddr expr))
+	(transform (cadr expr) bound-vars))
+       (else
+	(transform
+	 (list 'if (cadr expr)
+	           (cons 'and (cddr expr))
+		   #f)
+	 bound-vars))))
+     ((tagged-form? 'or expr)
+      (cond
+       ((null? (cdr expr))
+	#f)
+       ((null? (cddr expr))
+	(transform (cadr expr) bound-vars))
+       (else
+	(transform
+	 (list 'let (('one (cadr expr))
+		     ('thunk ('lambda () (cons 'or (cddr expr)))))
+	       ('if 'one
+		    'one
+		    ('thunk)))
+	 bound-vars))))
+     ((tagged-form? 'when expr)
+      (transform
+       (list 'if (cadr expr)
+	         (make-begin cddr expr)
+	         #f)
+       bound-vars))
+     ((tagged-form? 'unless expr)
+      (transform
+       (append (list 'when ('not cadr expr))
+	       (cddr expr))
+       bound-vars))
+     ((tagged-form? 'cond expr)
+      (transform
+       (let* ((conditions (cdr expr))
+	      (first-condition (car conditions))
+	      (first-test (car first-condition))
+	      (first-body (cdr first-condition))
+	      (rest (if (null? (cdr conditions))
+			#f
+			(cons 'cond (cdr conditions)))))
+	 (cond
+	  ((and (eq? first-test 'else) (not (member 'else bound-vars)))
+	   (make-begin first-body))
+	  ((null? first-body)
+	   (list 'or first-test rest))
+	  (else
+	   (list 'if first-test
+		 (make-begin first-body)
+		 rest))))
+       bound-vars))
+     ((list? expr)
+      (map (lambda (e)
+	     (transform e bound-vars))
+	   expr))
+     (else
+      expr)))
+  transform expr '())
+
+;;; α変換(変数をユニークにする)
+(define (alpha-conversion expr)
+  (define (transform expr env)
+    (cond
+     ((variable? expr)
+      (or (lookup expr env)
+	  (error "alpha-conversion: " (format #t "undefined variable ~s" expr))))
+     ((lambda? expr)			; lamdaの引数名をユニークにする
+      (let ((new-env (bulk-extend-env	; lambdaの引数に対応するユニークな名前を環境に追加
+		      (lambda-formals expr)
+		      (map unique-name (lambda-formals expr))
+		      env)))
+	(make-lambda			; ユニークな名前を使って、lambda式を作り直す
+	 (map (lambda (v)
+		(loopup v new-env))
+	      (lambda-formals expr))
+	 (transform (lambda-body expr new-env)))))
+     ((let? expr)			; letのbindされる変数名をユニークにする
+      (let* ((lvars (map lhs (let-bindings expr)))
+	     (new-env (bulk-extend-env
+		       lvars
+		       (map unique-name lvars)
+		       env)))
+	(make-let
+	 'let
+	 (map (lambda (binding)
+		(bind (lookup (lhs binding) new-env)
+		      (transform (rhs binding) env))))
+	 (transform (let-body expr) new-env))))
+     ((and (list? expr) (not (null? expr)) (special? (car expr)))
+      (cons (car expr) (map (lambda (e)
+			      (transform e env))
+			    (cdr expr))))
+     ((list? expr)
+      (map (lambda (e)
+	     (transform e env))
+	   expr))
+     (else
+      expr)))
+  (transform expr (make-initial-env '())))
+
+;;; 代入処理の変換
+;;; (set!の対象になる自由変数はxを (x . #f) のようにペアに変え、ヒープ領域で各クロージャから共有する)
+(define (assignment-conversion expr)
+  (let ((assigned '()))			; set!対象の変数名のリスト
+    ;; set!対象リストに変数名を追加
+    (define (set-variable-assigned! v)
+      (unless (member v assigned)
+	      (set! assigned (cons v assigned))))
+    ;; set!対象リストに追加済みかどうか
+    (define (variable-assigned v)
+      (member v assigned))
+    ;; 式の中のset!対象の変数を、対象リストに追加します。
+    (define (mark expr)
+      (when (set? expr)
+	    (set-variable-assigned! (set-lhs expr)))
+      (when (list? expr) (for-each mark expr)))
+    (define (transform expr)
+      (cond
+       ((set? expr)
+	(list 'set-car! (set-lhs expr) (transform (set-rhs expr))))
+       ((lambda? expr)
+	(let ((vars (filter variable-assigned (lambda-formals expr))))
+	  (make-lambda
+	   (lambda-formals expr)
+	   (if (null? vars)
+	       (transform (lambda-body expr))
+	       (make-let
+		'let
+		(map (lambda (v)
+		       (bind v (list 'cons v #f)))
+		     vars)
+		(transform (lambda-body expr)))))))
+       ((let? expr)
+	(make-let
+	 'let
+	 (map (lambda (binding)
+		(let ((var (lhs binding))
+		      (val (transform (rhs binding))))
+		  (bind var
+			(if (variable-assigned var)
+			    (list 'cons val #f)
+			    val))))
+	      (let-bindings expr))
+	 (transform (let-body expr))))
+       ((list? expr) (map transform expr))
+       ((and (variable? expr) (variable-assigned expr))
+	(list 'car expr))
+       (else
+	expr)))
+    (mark expr)
+    (transform expr)))
+			  
 ;;; code特殊形式を使った式に変換して、クロージャに対応します
 ;;; labels特殊形式と、top-envとのリストを返します。
 (define (closure-convertion expr)
-  (let ((labels '())
-	(top-env '())
-	(top-procs '()))
-    (define (transform-letrec letrec-expr)
-      (let ((top-bindings		; letの変数名とラベルを結び付ける
-	     (map (lambda (binding)
-		    (list (car binding) (unique-label)))
-		  (cadr letrec-expr))))
-	(set! top-env (make-initial-env top-bindings))
-	(set! top-procs (map car top-bindings))
-	(for-each (lambda (lvar-lambda-bind lvar-label-bind)
-		    (transform (cadr lvar-lambda-bind) (cadr lvar-label-bind)))
-		  (cadr letrec-expr) top-bindings)
-	(transform (caddr letrec-expr))))
+  (let ((labels '()))
     (define (transform expr . label)
       (cond
        ((lambda? expr)
 	(let ((label (or (and (not (null? label)) (car label)) ; labelが指定されていなかったらlabelを生成
 			 (unique-label)))
-	      (free-vars (filter (lambda (v)
-				   (not (member v top-procs)))
-				 (get-free-vars expr))))
+	      (free-vars (get-free-vars expr)))
 	  (set! labels
-		(cons (list label (make-code (cadr expr)
+		(cons (bind label (make-code (cadr expr)
 					     free-vars
 					     (transform (caddr expr))))
 		      labels))
@@ -932,7 +1159,11 @@
     (let* ((body (if (letrec? expr)
 		     (transform-letrec expr)
 		     (transform expr))))
-      (list (list 'labels labels body) top-env))))
+      (make-let 'labels labels body))))
+
+;;; コンパイル前の変換処理
+(define (all-conversions expr)
+  (closure-convertion (assignment-conversion (alpha-conversion (macro-expand expr)))))
 
 ;;;; コンパイラ・メイン処理
 
@@ -969,7 +1200,6 @@
    ((and? expr)       (emit-and si env expr) (emit-ret-if tail))
    ((or? expr)        (emit-or si env expr) (emit-ret-if tail))
    ((let? expr)       (emit-let si env tail expr))
-   ((let*? expr)      (emit-let* si env tail expr))
    ((begin? expr)    (emit-begin si env tail expr))
    ((primcall? expr)  (emit-primcall si env expr) (emit-ret-if tail))
    ((app? expr env)   (emit-app si env tail expr))
@@ -1010,10 +1240,11 @@
   (emit-tail-expr (- wordsize) env expr))
 
 ;;;;
-(define (emit-labels labels-expr env)
+(define (emit-labels labels-expr)
   (let* ((bindings (cadr labels-expr))
 	 (labels (map car bindings))
-	 (codes (map cadr bindings)))
+	 (codes (map cadr bindings))
+	 (env make-initial-env '()))
     (for-each (emit-code env) codes labels)
     (emit-scheme-entry (caddr labels-expr) env)))
 
@@ -1034,7 +1265,7 @@
   (emit "	lw a1, ~s(sp)" (* wordsize 2))
   (emit "	addi sp, sp, ~s" (* wordsize 3))
   (emit "	ret")
-  (emit-top (closure-convertion program)))
+  (emit-labels (all-conversions program)))
 
 ;;;; 自動テスト関連
 
