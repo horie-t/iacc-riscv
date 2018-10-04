@@ -40,10 +40,10 @@
 	  (let* ((count (cdr entry))
 		 (new-name (string->symbol (format "~s_~s" name count))))
 	    (set-cdr! entry (+ count 1))
-	    new-name)))
+	    new-name))
 	 (else
 	  (set! counts (cons (cons name 1) counts))
-	  name)))))
+	  name))))))
 
 ;;; 値比較ユーティリティ
 ;; a0と値を比較し、booleanオブジェクトをa0に設定します。
@@ -87,6 +87,18 @@
 ;;    何もなければ空リストを渡す
 (define (make-initial-env bindings)
   bindings)
+
+;;; binding部分を生成します。
+(define (bind lhs rhs)
+  (list lhs rhs))
+
+;;; bindingの束縛されるシンボル(left hand side)を返します
+(define (lhs expr)
+  (car expr))
+
+;;; bindingの値(right hand side)を返します
+(define (rhs expr)
+  (cadr expr))
 
 ;;; 環境に変数を追加します。
 ;; var 変数のシンボル
@@ -373,7 +385,7 @@
 ;;; if形式かどうかを返します
 (define (if? expr)
   (and (tagged-form? 'if expr)
-       (or (= (length cdr expr) 3)
+       (or (= (length (cdr expr)) 3)
 	   (error "if? " (format #t "malformed if ~s" expr)))))
 
 ;;; if形式の述部(predicate)を取り出します。
@@ -442,9 +454,16 @@
 (define (let? expr)
   (tagged-form? 'let expr))
 
+;;; letの形式の詳細を返します。
+(define (let-kind expr)
+  (car expr))
+
 ;;; let形式のbinding部分を返します。
 (define (let-bindings expr)
   (cadr expr))
+
+(define make-let list)
+
 
 ;;; let形式のbody部分を返します。body部分が複数の式からなる時は、begin形式に変換します
 (define (let-body expr)
@@ -669,7 +688,7 @@
 ;;;; app関連
 ;;; apply可能かどうか
 (define (app? expr env)
-  (and (list? expr) (not (null? expr)) (lookup (car expr) env)))
+  (and (list? expr) (not (null? expr))))
 
 ;;; applyの出力
 ;; si スタック・インデックス(stack index)
@@ -949,11 +968,11 @@
        (map (lambda (binding)
 	      (bind (lhs binding) (transform (rhs binding) bound-vars)))
 	    (let-bindings expr))
-       (transform (let-body)
+       (transform (let-body expr)
 		  (append (map lhs (let-bindings expr)) bound-vars))))
      ((let*? expr)
       (transform
-       (if (null? let-bindings)
+       (if (null? (let-bindings expr))
 	   (let-body expr)
 	   (make-let
 	    'let
@@ -974,7 +993,8 @@
 	 (append
 	  (map (lambda (binding)
 		 (make-set! (lhs binding) (rhs binding)))
-	       (let-body-seq expr)))))
+	       (let-bindings expr))
+	  (let-body-seq expr))))
        bound-vars))
      ((tagged-form? 'and expr)
       (cond
@@ -996,11 +1016,11 @@
 	(transform (cadr expr) bound-vars))
        (else
 	(transform
-	 (list 'let (('one (cadr expr))
-		     ('thunk ('lambda () (cons 'or (cddr expr)))))
-	       ('if 'one
-		    'one
-		    ('thunk)))
+	 `(let ((one ,(cadr expr))
+		(thunk (lambda () (or ,@(cddr expr)))))
+	       (if one
+		   one
+		   (thunk)))
 	 bound-vars))))
      ((tagged-form? 'when expr)
       (transform
@@ -1038,7 +1058,7 @@
 	   expr))
      (else
       expr)))
-  transform expr '())
+  (transform expr '()))
 
 ;;; α変換(変数をユニークにする)
 (define (alpha-conversion expr)
@@ -1054,9 +1074,9 @@
 		      env)))
 	(make-lambda			; ユニークな名前を使って、lambda式を作り直す
 	 (map (lambda (v)
-		(loopup v new-env))
+		(lookup v new-env))
 	      (lambda-formals expr))
-	 (transform (lambda-body expr new-env)))))
+	 (transform (lambda-body expr) new-env))))
      ((let? expr)			; letのbindされる変数名をユニークにする
       (let* ((lvars (map lhs (let-bindings expr)))
 	     (new-env (bulk-extend-env
@@ -1067,7 +1087,8 @@
 	 'let
 	 (map (lambda (binding)
 		(bind (lookup (lhs binding) new-env)
-		      (transform (rhs binding) env))))
+		      (transform (rhs binding) env)))
+	      (let-bindings expr))
 	 (transform (let-body expr) new-env))))
      ((and (list? expr) (not (null? expr)) (special? (car expr)))
       (cons (car expr) (map (lambda (e)
@@ -1166,7 +1187,7 @@
 
 ;;; コンパイル前の変換処理
 (define (all-conversions expr)
-  (closure-convertion (assignment-conversion (alpha-conversion (macro-expand expr)))))
+ (closure-convertion (assignment-conversion (alpha-conversion (macro-expand expr)))))
 
 ;;;; コンパイラ・メイン処理
 
@@ -1244,10 +1265,10 @@
 
 ;;;;
 (define (emit-labels labels-expr)
-  (let* ((bindings (cadr labels-expr))
+  (let* ((bindings (let-bindings labels-expr))
 	 (labels (map car bindings))
 	 (codes (map cadr bindings))
-	 (env make-initial-env '()))
+	 (env (make-initial-env '())))
     (for-each (emit-code env) codes labels)
     (emit-scheme-entry (caddr labels-expr) env)))
 
