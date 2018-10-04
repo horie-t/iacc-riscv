@@ -158,7 +158,10 @@
 
 ;;; 即値表現から、アセンブリ言語を出力します。
 (define (emit-immediate expr)
-  (emit "	li a0, ~s" (immediate-rep expr)))
+  (let ((imm (immediate-rep expr)))
+    (when (>= imm 4096)
+	  (emit "	lui a0, ~s" (ash imm -12)))
+    (emit "	li a0, ~s" imm)))
 
 ;;;; グローバル・プロバティ
 (define *prop* (make-eq-hashtable))
