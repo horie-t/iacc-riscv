@@ -1187,7 +1187,7 @@
 
 ;;; コンパイル前の変換処理
 (define (all-conversions expr)
- (closure-convertion (assignment-conversion (alpha-conversion (macro-expand expr)))))
+  (closure-convertion (assignment-conversion (alpha-conversion (macro-expand expr)))))
 
 ;;;; コンパイラ・メイン処理
 
@@ -1248,6 +1248,7 @@
 
 ;;; 末尾呼び出しの最後のジャンプ
 (define (emit-jmp-tail . labels)
+  (emit "	lw ra, 0(sp)")
   (emit "	addi sp, sp, ~s" wordsize)
   (cond
    ((null? labels)
