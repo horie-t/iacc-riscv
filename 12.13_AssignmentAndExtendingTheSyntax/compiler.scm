@@ -1242,8 +1242,7 @@
 (define (emit-call . labels)
   (cond
    ((null? labels)
-    (emit "	lw t0, 0(a0)")
-    (emit "	jalr t0"))
+    (emit "	jalr a0"))
    (else
     (emit "	call ~a" (car labels)))))
 
