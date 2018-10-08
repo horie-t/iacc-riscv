@@ -376,7 +376,7 @@
 ;;;; 特殊形式関連
 ;;; 特殊形式、プリミティブのシンボルかどうかを判定します。
 (define (special? symbol)
-  (or (member symbol '(if begin let lambda closure set!))
+  (or (member symbol '(if begin let lambda closure set! quote))
       (primitive? symbol)))
 
 ;;;; 条件式
@@ -793,6 +793,9 @@
 (define-primitive (cons si env arg1 arg2)
   (emit-binop si env arg1 arg2)
   (emit-stack-save (next-stack-index si))
+  (emit-cons si))
+
+(define (emit-cons si)
   (emit-heap-alloc pairsize)
   (emit "	ori a0, a0, ~s" pairtag)
   (emit-stack-to-heap si (- paircar pairtag))
@@ -828,8 +831,10 @@
 ;;; ベクトルを作成します。
 ;; length ベクトルの要素数
 (define-primitive (make-vector si env length)
-  (emit-expr si env length)
-  (emit-stack-save si)
+  (emit-expr-save si env length)
+  (emit-make-vector si))
+
+(define (emit-make-vector si)
   (emit "	addi a0, a0, ~s" (ash 1 fxshift)) ; 要素数+1のセルを確保する。+1はlengthデータ保存用
   (emit "	slli a0, a0, ~s" wordshift)	  ; 要素数 -> バイト数へ変換
   (emit-heap-alloc-dynamic)
@@ -877,6 +882,9 @@
 ;;; 文字列を作成します。
 (define-primitive (make-string si env length)
   (emit-expr-save si env length)
+  (emit-make-string si))
+
+(define (emit-make-string si)
   (emit "	srai a0, a0, ~s" fxshift)
   (emit "	addi a0, a0, ~s" wordsize)
   (emit-heap-alloc-dynamic)
@@ -919,6 +927,50 @@
   (emit "	lb a0, ~s(a0)" (- stringtag))
   (emit "	slli a0, a0, ~s" charshift)
   (emit "	ori a0, a0, ~s" chartag))
+
+;;;; quote関連
+(define (quote? expr)
+  (tagged-list 'quote expr))
+
+(define (quote-expr expr)
+  (cadr expr))
+
+(define (emit-quote si env expr)
+  (cond
+   ((immediate? expr) (emit-immediate expr))
+   ((pair? expr)
+    (emit-quote si env (car expr))
+    (emit-stack-save si)
+    (emit-quote (next-stack-index si) env (cdr expr))
+    (emit-stack-save (next-stack-index si))
+    (emit-cons si))
+   ((vector? expr)
+    (emit-expr si env (vector-length expr))
+    (emit-stack-save si)
+    (emit-make-vector si)
+    (emit-stack-save si)
+    (let loop ((index 0))
+      (unless (= index (vector-length expr))
+	      (emit-quate (next-stack-index si) env (vector-ref expr index))
+	      (emit-stack-save (next-stack-index si))
+	      (emit-stack-load si)
+	      (emit "	addi a0, a0, ~s" (* wordsize (+ index 1)))
+	      (emit-stack-to-heap (next-stack-index si) (- vectortag))
+	      (loop (+ index 1))))
+    (emit-stack-load si))
+   ((string? expr)
+    (emit-expr si env (string-length expr))
+    (emit-stack-save si)
+    (emit-make-string si)
+    (emit-stack-save si)
+    (let loop ((index 0))
+      (unless (= index (string-length expr))
+	      (emit "	addi a0, a0, ~s" (if (= index 0) wordsize 1))
+	      (emit "	li t0, ~s" (char->integer string-ref expr index))
+	      (emit "	sb t0, ~s(a0)" (- stringtag))
+	      (loop (+ index 1)))
+      (emit-stack-load si)))
+   (else (error "emit-quote: don't know how to quote" expr))))
 
 ;;;; クロージャ・オブジェクト関連
 (define closuretag  #x02)		; クロージャ・オブジェクトタグ
@@ -1153,7 +1205,32 @@
 	expr)))
     (mark expr)
     (transform expr)))
-			  
+
+;;; 定数定義をトップに繰り上げる
+(define (lift-constants expr)
+  (let ((constants '()))
+    (define (transform expr)
+      (cond
+       ((and (quote? expr) (assoc expr constants))
+	(cadr (assoc expr constants)))
+       ((quote? expr)
+	(set! constants (cons (list expr (unique-name 'c)) constants))
+	(cadr (assoc expr constants)))
+       ((string? expr)
+	(transform `(quote ,expr)))
+       ((list? expr)
+	(map transform expr))
+       (else expr)))
+    (let ((t-expr (transform expr)))
+      (if (null? constants)
+	  expr
+	  (make-let
+	   'let
+	   (map (lambda (val-cst)
+		  (bind (cadr val-cst) (car val-cst)))
+		constants)
+	   t-expr)))))
+
 ;;; code特殊形式を使った式に変換して、クロージャに対応します
 ;;; labels特殊形式と、top-envとのリストを返します。
 (define (closure-convertion expr)
@@ -1187,7 +1264,7 @@
 
 ;;; コンパイル前の変換処理
 (define (all-conversions expr)
-  (closure-convertion (assignment-conversion (alpha-conversion (macro-expand expr)))))
+  (closure-convertion (lift-constants (assignment-conversion (alpha-conversion (macro-expand expr))))))
 
 ;;;; コンパイラ・メイン処理
 
@@ -1221,10 +1298,9 @@
    ((variable? expr)  (emit-variable-ref si env expr) (emit-ret-if tail))
    ((closure? expr)   (emit-closure si env expr) (emit-ret-if tail))
    ((if? expr)        (emit-if si env tail expr))
-   ((and? expr)       (emit-and si env expr) (emit-ret-if tail))
-   ((or? expr)        (emit-or si env expr) (emit-ret-if tail))
    ((let? expr)       (emit-let si env tail expr))
-   ((begin? expr)    (emit-begin si env tail expr))
+   ((begin? expr)     (emit-begin si env tail expr))
+   ((quote? expr)     (emit-quote si env (quote-expr expr) (emif-ref-if tail)))
    ((primcall? expr)  (emit-primcall si env expr) (emit-ret-if tail))
    ((app? expr env)   (emit-app si env tail expr))
    (else (error "imvalid expr: " expr))))
