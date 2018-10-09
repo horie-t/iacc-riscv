@@ -951,7 +951,7 @@
     (emit-stack-save si)
     (let loop ((index 0))
       (unless (= index (vector-length expr))
-	      (emit-quate (next-stack-index si) env (vector-ref expr index))
+	      (emit-quote (next-stack-index si) env (vector-ref expr index))
 	      (emit-stack-save (next-stack-index si))
 	      (emit-stack-load si)
 	      (emit "	addi a0, a0, ~s" (* wordsize (+ index 1)))
@@ -966,7 +966,7 @@
     (let loop ((index 0))
       (unless (= index (string-length expr))
 	      (emit "	addi a0, a0, ~s" (if (= index 0) wordsize 1))
-	      (emit "	li t0, ~s" (char->integer string-ref expr index))
+	      (emit "	li t0, ~s" (char->integer (string-ref expr index)))
 	      (emit "	sb t0, ~s(a0)" (- stringtag))
 	      (loop (+ index 1)))
       (emit-stack-load si)))
@@ -1118,7 +1118,7 @@
     (cond
      ((variable? expr)
       (or (lookup expr env)
-	  (error "alpha-conversion: " (format #t "undefined variable ~s" expr))))
+	  (error "alpha-conversion: undefined variable" expr)))
      ((lambda? expr)			; lamdaの引数名をユニークにする
       (let ((new-env (bulk-extend-env	; lambdaの引数に対応するユニークな名前を環境に追加
 		      (lambda-formals expr)
@@ -1300,7 +1300,7 @@
    ((if? expr)        (emit-if si env tail expr))
    ((let? expr)       (emit-let si env tail expr))
    ((begin? expr)     (emit-begin si env tail expr))
-   ((quote? expr)     (emit-quote si env (quote-expr expr) (emif-ref-if tail)))
+   ((quote? expr)     (emit-quote si env (quote-expr expr)) (emit-ret-if tail))
    ((primcall? expr)  (emit-primcall si env expr) (emit-ret-if tail))
    ((app? expr env)   (emit-app si env tail expr))
    (else (error "imvalid expr: " expr))))

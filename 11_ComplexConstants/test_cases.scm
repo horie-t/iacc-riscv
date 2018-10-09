@@ -104,4 +104,12 @@
 	       (let ((lambda-pair (f 0)))
 		 ((car lambda-pair) 12)
 		 ((cdr lambda-pair))))                "12\n")
+    ("comp const num"    '42       "42\n")
+    ("comp const cons"   '(1 . 2)  "(1 . 2)\n")
+    ("comp const list"   '(1 2 3)  "(1 2 3)\n")
+    ("comp const string" "Hello, world!" "\"Hello, world!\"\n");
+    ("comp const eq?"    (let ((f (lambda () '(1 2 3))))
+			   (eq? (f) (f)))    "#t\n")
+    ("comp const vec"    (let ((x '#(1 2 3)))
+			   (cons x (vector-ref x 0)))   "(#(1 2 3) . 1)\n")
     ))
