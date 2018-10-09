@@ -930,7 +930,7 @@
 
 ;;;; quote関連
 (define (quote? expr)
-  (tagged-list 'quote expr))
+  (tagged-form? 'quote expr))
 
 (define (quote-expr expr)
   (cadr expr))
