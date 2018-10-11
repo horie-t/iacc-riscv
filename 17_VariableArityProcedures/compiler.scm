@@ -67,6 +67,9 @@
 (define (emit-stack-save si)
   (emit "	sw a0, ~s(sp)" si))
 
+(define (emit-stack-save-t0 si)
+  (emit "	sw t0, ~s(sp)" si))
+
 (define (emit-stack-load si)
   (emit "	lw a0, ~s(sp)" si))
 
@@ -578,8 +581,8 @@
     (list expr))
    ((lambda? expr)
     (filter (lambda (v)
-	      (not (member v (cadr expr))))
-	    (get-free-vars (caddr expr))))
+	      (not (member v (lambda-vars expr))))
+	    (get-free-vars (lambda-vars expr))))
    ((let? expr)
     (append (append-map get-free-vars (map cadr (let-bindings expr)))
 	    (filter (lambda (v)
@@ -634,6 +637,30 @@
 (define (lambda-formals expr)
   (cadr expr))
 
+;;; lambda式の可変長引数の部分(ドット・リスト)をリストに変換します。
+(define (formals-to-vars formals)
+  (cond
+   ((list? formals)
+    formals)
+   ((pair? formals)
+    (cons (car formals) (formals-to-vars (cdr formals))))
+   (else
+    (list formals))))
+
+;;; lambda式の可変長引数のリストに変換して返します。
+(define (lambda-vars expr)
+  (formals-to-vars (lambda-formals expr)))
+
+;;;
+(define (map-formals f formals)
+  (cond
+   ((list? formals)
+    (map f formals))
+   ((pair? formals)
+    (cons (f (car formals)) (map-formals f (cdr formals))))
+   (else
+    (f formals))))
+
 ;;; lambda特殊形式の本体部分を返します。
 (define (lambda-body expr)
   (make-body (cddr expr)))
@@ -648,15 +675,62 @@
 (define (make-code formals free-vars body)
   (list 'code formals free-vars body))
 
+(define (code-formals expr)
+  (cadr expr))
+
+(define (code-bound-variables expr)
+  (formals-to-vars (code-formals expr)))
+
+(define (code-free-variables expr)
+  (caddr expr))
+
+(define (code-body expr)
+  (cadddr expr))
+
+(define (code-vararg? expr)
+  (not (list? (code-formals expr))))
+
 (define (emit-code env)
   (lambda (expr label)
     (emit-function-header label)
     (emit "	addi sp, sp, ~s" (- wordsize))
     (emit "	sw ra, 0(sp)")
-    (let ((formals (cadr expr))
-	  (free-vars (caddr expr))
-	  (body (cadddr expr)))
-      (extend-env-with (- wordsize) env formals
+    (let ((bound-variables (code-bound-variables expr))
+	  (free-vars (code-free-variables expr))
+	  (body (code-body expr)))
+      (when (code-vararg? expr)
+	    (let ((start-label (unique-label))
+		  (fill-label (unique-label))
+		  (loop-label (unique-label)))
+	      (emit "	mv t0, a0")	; 引数の数(arity)はt0として扱う
+	      (emit-immediate '())	; 残余引数のリストの末尾をa0にセット
+	      (emit "	li t1, ~s" (- (length bound-variables) 1))
+	      (emit "	ble t0, t1, ~s" fill-label) ; 残余引数がない場合へ(本来はt0<t1はエラー)
+	      ;; 残余引数をリスト化する
+	      (emit-label loop-label)
+	      (emit "	li t1, ~s" (length bound-variables))
+	      (emit "	blt t0, t1, ~s" start-label)
+	      (emit "	slli t0, t0, ~s" wordshift) ; スタックポインタを一時的に引数の最上位に変更して作業したい
+	      (emit "	sub sp, sp, t0")
+	      (emit-stack-save (next-stack-index 0)) ; a0をスタックに積む(ループの最初は())
+	      (emit-stack-save-t0 (next-stack-index (next-stack-index 0))) ; cons呼び出し前にt0をスタックに退避
+	      (emit-cons 0)		; スタックの引数の最後尾2つをconsを使ってリスト化していく
+	      (emit-stack-save 0)	; 引数はconsオブジェクトを参照するようにする
+	      (emit-stack-load-t0 (next-stack-index (next-stack-index 0)))
+	      (emit "	add sp, sp, t0") ;スタックポインタを元に戻す
+	      (emit "	srai t0, t0, ~s" wordshift)
+	      (emit "	addi t0, t0, -1")
+	      (emit "	j ~s" loop-label)
+	      ;; 残余引数を空リストにセットする 
+	      (emit-label fill-label)
+	      (emit "	addi t0, t0, 1")
+	      (emit "	slli t0, t0, ~s" wordshift)
+	      (emit "	sub sp, sp, t0")
+	      (emit-stack-save 0)	; 既にa0に()がセットされている
+	      (emit "	add sp, sp, t0")
+	      ;; 手続き本体開始
+	      (emit-label start-label)))
+      (extend-env-with (- wordsize) env bound-variables
 		       (lambda (si env)
 			 (close-env-with wordsize env free-vars
 					 (lambda (env)
@@ -717,7 +791,9 @@
     (emit "	mv a1, a0")
     (emit-heap-load (- closuretag))
     (emit-adjust-base si)
-    (emit-call)
+    (emit "	mv t0, a0")
+    (emit "	addi a0, ~s" (length (cdr expr)))
+    (emit "	jalr t0")
     (emit-adjust-base (- si))
     (emit "	lw a1, ~s(sp)" si))
    (else				; tail
@@ -727,7 +803,11 @@
     (move-arguments si (- (+ si wordsize)) (cdr expr))
     (emit "	mv a0, a1")
     (emit-heap-load (- closuretag))
-    (emit-jmp-tail))))
+    (emit "	mv t0, a0")
+    (emit "	addi a0, ~s" (length (cdr expr)))
+    (emit "	lw ra, 0(sp)")
+    (emit "	addi sp, sp, ~s" wordsize)
+    (emit "	jr t0"))))
 
 ;;; Scheme手続きに対応する、アセンブリ言語のラベルを返します。見つからなかった場合は#fを返します。
 (define (proc expr env)
@@ -1003,6 +1083,22 @@
 
 ;;;; 前処理の変換
 
+;; 14ステップで正式なものとなるまでのライブラリの仮実装
+(define (library-hack expr)
+  `(letrec ((length (lambda (lst)
+		      (if (null? lst)
+			  0
+			  (fxadd1 (length (cdr lst))))))
+	    (vector (lambda args
+		      (let ((v (make-vector (lenth args))))
+			(letrec ((fill (lambda (index args)
+					 (unless (null? args)
+						 (vector-set! v index (car args))
+						 (fill (fx+ index 1) (cdr args))))))
+			  (fill 0 args)
+			  v)))))
+     ,expr))
+
 ;;; マクロ変換
 (define (macro-expand expr)
   (define (transform expr bound-vars)
@@ -1013,7 +1109,7 @@
       (make-lambda
        (lambda-formals expr)
        (transform (lambda-body expr)
-		  (append (lambda-formals expr) bound-vars))))
+		  (append (lambda-vars expr) bound-vars))))
      ((let? expr)
       (make-let
        (let-kind expr)
@@ -1121,13 +1217,13 @@
 	  (error "alpha-conversion: undefined variable" expr)))
      ((lambda? expr)			; lamdaの引数名をユニークにする
       (let ((new-env (bulk-extend-env	; lambdaの引数に対応するユニークな名前を環境に追加
-		      (lambda-formals expr)
-		      (map unique-name (lambda-formals expr))
+		      (lambda-vars expr)
+		      (map unique-name (lambda-vars expr))
 		      env)))
 	(make-lambda			; ユニークな名前を使って、lambda式を作り直す
-	 (map (lambda (v)
-		(lookup v new-env))
-	      (lambda-formals expr))
+	 (map-formals (lambda (v)
+			(lookup v new-env))
+		      (lambda-formals expr))
 	 (transform (lambda-body expr) new-env))))
      ((let? expr)			; letのbindされる変数名をユニークにする
       (let* ((lvars (map lhs (let-bindings expr)))
@@ -1175,7 +1271,7 @@
        ((set? expr)
 	(list 'set-car! (set-lhs expr) (transform (set-rhs expr))))
        ((lambda? expr)
-	(let ((vars (filter variable-assigned (lambda-formals expr))))
+	(let ((vars (filter variable-assigned (lambda-vars expr))))
 	  (make-lambda
 	   (lambda-formals expr)
 	   (if (null? vars)
@@ -1264,7 +1360,7 @@
 
 ;;; コンパイル前の変換処理
 (define (all-conversions expr)
-  (closure-convertion (lift-constants (assignment-conversion (alpha-conversion (macro-expand expr))))))
+  (closure-convertion (lift-constants (assignment-conversion (alpha-conversion (macro-expand (library-hack expr)))))))
 
 ;;;; コンパイラ・メイン処理
 
@@ -1314,23 +1410,6 @@
   (emit "	.globl ~a" f)
   (emit "	.type ~a, @function" f)
   (emit-label f))
-
-(define (emit-call . labels)
-  (cond
-   ((null? labels)
-    (emit "	jalr a0"))
-   (else
-    (emit "	call ~a" (car labels)))))
-
-;;; 末尾呼び出しの最後のジャンプ
-(define (emit-jmp-tail . labels)
-  (emit "	lw ra, 0(sp)")
-  (emit "	addi sp, sp, ~s" wordsize)
-  (cond
-   ((null? labels)
-    (emit "	jr a0"))
-   (else
-    (emit "	j ~a" (car labels)))))
 
 ;;;;
 (define (emit-scheme-entry expr env)
