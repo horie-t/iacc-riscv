@@ -804,7 +804,7 @@
     (emit "	mv a0, a1")
     (emit-heap-load (- closuretag))
     (emit "	mv t0, a0")
-    (emit "	addi a0, a0, ~s" (length (cdr expr)))
+    (emit "	li a0, ~s" (length (cdr expr)))
     (emit "	lw ra, 0(sp)")
     (emit "	addi sp, sp, ~s" wordsize)
     (emit "	jr t0"))))

@@ -112,4 +112,6 @@
 			   (eq? (f) (f)))    "#t\n")
     ("comp const vec"    (let ((x '#(1 2 3)))
 			   (cons x (vector-ref x 0)))   "(#(1 2 3) . 1)\n")
+    ("var arity" (let ((f (lambda (a b . c) (vector a b c))))
+		   (f 1 2 3 4))    "#(1 2 (3 4))\n")
     ))
