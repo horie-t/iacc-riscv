@@ -5,10 +5,11 @@
 
 ;;;; ユーティリティ関数
 
-;;; 書式と引数を取って表示し、改行を付け加えます。
+;;; アセンブリ・プログラム(アセンブリ表現)出力用手続き。書式と引数を取って表示し、改行を付け加えます。
 ;; 例: (emit "addi t0, t0, ~s" 1)
 ;; addi t0, t0, 1
 ;; が表示されます。
+;; @param args
 (define (emit . args)
   (apply format #t args)
   (newline))
@@ -18,12 +19,12 @@
 (define unique-label
   (let ((count 0))
     (lambda ()
-      (let ((L (string->symbol (format "L_~s" count)))) ; シンボルに変換する必要はある?
+      (let ((L (string->symbol (format "L_~s" count))))
 	(set! count (+ count 1))
 	L))))
 
 ;;; ユニーク・ラベルのリストを生成します。
-;; vars ラベルの一部を形成する文字のリスト
+;; @param vars ラベルの一部を形成する文字のリスト
 (define (unique-labels vars)
   (map (lambda (var)
 	 (format "~a_~s" (unique-label) var))
@@ -45,9 +46,9 @@
 	  (set! counts (cons (cons name 1) counts))
 	  name))))))
 
-;;; 値比較ユーティリティ
-;; a0と値を比較し、booleanオブジェクトをa0に設定します。
-;; args 比較する即値、省略時はt0と比較
+;;; 値比較のアセンブリ表現を出力します。
+;;; a0と値を比較し、booleanオブジェクトをa0に設定します。
+;; @param args 比較する即値、省略時はt0と比較
 (define (emit-cmp-bool . args)
   (if (null? args)
       (emit "	sub a0, a0, t0")
@@ -56,65 +57,86 @@
   (emit "	slli a0, a0, ~s" bool_bit)
   (emit "	ori  a0, a0, ~s" bool_f))
 
-;;; 式の書式判定ユーティリティ
-;; (tag ....) の形式かどうかを判定します。
+;;; 式の書式判定ユーティリティ。
+;; exprが(tag ....) の形式かどうかを判定します。
+;; @param tag 判定したいタグ
+;; @param 判定されるS式
 (define (tagged-form? tag expr)
   (and (list? expr) (not (null? expr)) (eq? (car expr) tag)))
 
 ;;;; スタック関連
-;;; スタックに値を保存します。
-;; si スタック・インデックス
+
+;;; a0レジスタの値をスタックに保存するアセンブリ表現を出力します。
+;; @param si 保存先のスタック・インデックス
 (define (emit-stack-save si)
   (emit "	sw a0, ~s(sp)" si))
 
+;;; t0レジスタの値をスタックに保存するアセンブリ表現を出力します。
+;; @param si 保存先のスタック・インデックス
 (define (emit-stack-save-t0 si)
   (emit "	sw t0, ~s(sp)" si))
 
+;;; a0レジスタにスタックの値を読み込むアセンブリ表現を出力します。
+;; @param si 読み込み先のスタック・インデックス
 (define (emit-stack-load si)
   (emit "	lw a0, ~s(sp)" si))
 
+;;; t0レジスタにスタックの値を読み込むアセンブリ表現を出力します。
+;; @param si 読み込み先のスタック・インデックス
 (define (emit-stack-load-t0 si)
   (emit "	lw t0, ~s(sp)" si))
 
-;;; 次のスタックインデックスを返します。
+;;; 次のスタック・インデックスを返します。
+;; @param si 現在のスタック・インデックス
 (define (next-stack-index si)
   (- si wordsize))
 
-;;; スタック・ポインタを移動させます。
+;;; スタック・ポインタを移動させるアセンブリ表現を出力します。
+;; @param si 移動先スタック・インデックス
 (define (emit-adjust-base si)
   (emit "	addi sp, sp, ~s" si))
 
-;;;; 環境関連
+;;;; 環境関連(シンボルとその値の集合)
+
 ;;; 環境を生成します。
-;; bindings 初期値。 '((a -8) (b -9))のような、シンボル、スタック・インデックスのリストのリスト。
+;; @param bindings 初期値。 '((a -8) (b -9))のような、シンボル、スタック・インデックスのリストのリスト。
 ;;    何もなければ空リストを渡す
 (define (make-initial-env bindings)
   bindings)
 
 ;;; binding部分を生成します。
+;; @param lhs シンボル(left hand side)。age = 20 の左辺に相当
+;; @param rhs 値(right hand side)。age = 20 の右辺に相当
 (define (bind lhs rhs)
   (list lhs rhs))
 
 ;;; bindingの束縛されるシンボル(left hand side)を返します
+;; @param expr '(a -8)のような束縛式
 (define (lhs expr)
   (car expr))
 
 ;;; bindingの値(right hand side)を返します
+;; @param expr '(a -8)のような束縛式
 (define (rhs expr)
   (cadr expr))
 
 ;;; 環境に変数を追加します。
-;; var 変数のシンボル
-;; si スタック・インデックス
-;; env 変数を追加する環境
+;; @param var 変数のシンボル
+;; @param si 値を示すスタック・インデックス
+;; @param env 変数を追加する環境
 (define (extend-env var si env)
   (cons (list var si) env))
 
-;;; 環境に変数を追加します。
+;;; 環境に変数をまとめて追加します。
+;; @param vars 変数のシンボルのリスト
+;; @param vals 値のリスト
+;; @param env 変数を追加する環境
 (define (bulk-extend-env vars vals env)
   (append (map list vars vals) env))
 
 ;;; 環境から変数の値を検索します
+;; @param var 検索した変数
+;; @param env 環境
 (define (lookup var env)
   (cond
    ((assv var env)
@@ -123,7 +145,7 @@
 
 ;;;; オブジェクト型情報定義: タグ付きポインタ表現を使う
 
-;;; 整数: 下位2ビットが00、上位30ビットが符号付き整数となっている
+;;; 固定長整数: 下位2ビットが00、上位30ビットが符号付き整数となっている
 (define fxshift 2)			; 整数変換シフト量
 (define fxmask #x03)			; 整数判定ビットマスク(ANDを取って0なら整数オブジェクト)
 (define fxtag #0x0)			;
@@ -147,10 +169,13 @@
 (define wordsize 4)			; 32bit(4バイト)
 (define wordshift 2)			; word数 -> バイト数 変換シフト量
 
-(define fixnum-bits (- (* wordsize 8) fxshift))
-(define fxlower (- (expt 2 (- fixnum-bits 1))))
-(define fxupper (- (expt 2 (- fixnum-bits 1))
+(define fixnum-bits (- (* wordsize 8) fxshift)) ; 整数のビット数
+(define fxlower (- (expt 2 (- fixnum-bits 1)))) ; 整数の下限値
+(define fxupper (- (expt 2 (- fixnum-bits 1))	; 整数の上限値
 		   1))
+
+;;; 固定長整数かどうかを判定します。
+;; @param x 判定対象の値
 (define (fixnum? x)
   (and (integer? x) (exact? x) (<= fxlower x fxupper)))
 
@@ -158,10 +183,12 @@
 ;;;; 即値関連関数
 
 ;;; 即値かどうかを返します。
+;; @param x 判定対象
 (define (immediate? x)
   (or (fixnum? x) (boolean? x) (char? x) (null? x)))
 
 ;;; Schemeの即値から、アセンブリ言語でのオブジェクト表現を返します。
+;; @param x Schemeの即値
 (define (immediate-rep x)
   (cond
    ((fixnum? x) (ash x fxshift))
@@ -172,21 +199,31 @@
    (else (error "invalid immediate"))))
 
 ;;; 即値表現から、アセンブリ言語を出力します。
+;; @param x 即値表現
 (define (emit-immediate expr)
   (let ((imm (immediate-rep expr)))
     (when (>= imm 4096)
 	  (emit "	lui a0, ~s" (ash imm -12)))
     (emit "	li a0, ~s" imm)))
 
-;;;; グローバル・プロバティ
-(define *prop* (make-eq-hashtable))
+;;;; グローバル・プロバティ(プリミティブの定義で使用する)
 
+;;; プロパティ表現(Keyとその値の対応)から構成されるオブジェクトの、ハッシュテーブル。
+(define *prop* (make-eq-hashtable)) 
+
+;;; 指定されたオブジェクトのプロパティの値を返します。
+;; @param x オブジェクト
+;; @param property xオブジェクトのプロパティ名
 (define (getprop x property)
   (let ((prop (hashtable-ref *prop* x #f)))
     (if prop
 	(hashtable-ref prop property #f)
 	#f)))
 
+;;; 指定されたオブジェクトにプロパティの値を加えます
+;; @param x オブジェクト
+;; @param property xオブジェクトのプロパティ名
+;; @param val プロパティの値
 (define (putprop x property val)
   (let ((entry (hashtable-ref *prop* x #f)))
     (if entry
@@ -199,11 +236,15 @@
 
 ;;;; プリミティブ関連
 
-;;; プリミティブ定義(*porp*にプリミティブ関連の情報を追加)
-;; 例: (define-primitive (fxadd1 arg)
-;;       出力内容 ...)
+;;; プリミティブを定義します
 (define-syntax define-primitive
   (syntax-rules ()
+    ;; @param prime-name
+    ;; @param si 現在使えるスタック・インデックス
+    ;; @param env 環境
+    ;; @param arg* ... プリミティブの引数
+    ;; @param body プリミティブのbody部分
+    ;; @param body* ... bodyが複数の式から構成される場合のbodyリスト
     ((_ (prime-name si env arg* ...) body body* ...)
      (begin
        (putprop 'prime-name '*is-prime* #t)
@@ -214,76 +255,79 @@
 		  body body* ...))))))
 
 ;;; 引数が基本演算かどうかを返します。
-; xは、add1のようにシンボルで、*is-prime*が#tにセットされている必要がある
+;; @param x 判定対象。xは、add1のようにシンボルで、*is-prime*が#tにセットされている必要がある
 (define (primitive? x)
   (and (symbol? x) (getprop x '*is-prime*)))
 
+;;; プリミティブのemmiterを返します。
+;; @param x プリミティブのインスタンス
 (define (primitive-emitter x)
   (or (getprop x '*emmiter*) (error "primitive-emitter: not exist emmiter")))
 
-;;;; 単項演算関連
-
-;;; 単項演算呼び出し(単項演算処理)かどうかを返します。
-;; 単項演算呼び出しは(op arg)の形式なので、最初はpairで、carがprimitive?がtrueを返すものでなければならない。
-(define (primcall? expr)
-  (and (pair? expr) (primitive? (car expr))))
-
+;;; プリミティブ処理のアセンブリ表現を出力します。
 (define (emit-primcall si env expr)
   (let ((prim (car expr))
 	(args (cdr expr)))
     (apply (primitive-emitter prim) si env args)))
 
-;;; 引数に1を加えた値を返します
+;;;; 単項演算関連
+
+;;; 単項演算呼び出し(単項演算処理)かどうかを返します。
+;; @param expr 単項演算呼び出しは(op arg)の形式なので、最初はpairで、carがprimitive?がtrueを返すものでなければならない。
+(define (primcall? expr)
+  (and (pair? expr) (primitive? (car expr))))
+
+;;; 引数に1を加えた値を返すプリミティブ
 (define-primitive (fxadd1 si env arg)
   (emit-expr si env arg)
   (emit "	addi a0, a0, ~s" (immediate-rep 1)))
 
-;;; 引数から1を引いた値を返します
+;;; 引数から1を引いた値を返すプリミティブ
 (define-primitive (fxsub1 si env arg)
   (emit-expr si env arg)
   (emit "	addi a0, a0, ~s" (immediate-rep -1)))
 
-;;; fixnumからcharに変換します。
+;;; fixnumからcharに変換するプリミティブ
 (define-primitive (fixnum->char si env arg)
   (emit-expr si env arg)
   (emit "	slli a0, a0, ~s" (- charshift fxshift))
   (emit "	ori  a0, a0, ~s" chartag))
 
-;;; charからfixnumに変換します。
+;;; charからfixnumに変換するプリミティブ
 (define-primitive (char->fixnum si env arg)
   (emit-expr si env arg)
   (emit "	srli a0, a0, ~s" (- charshift fxshift)))
 
-;;; fixnumかどうかを返します
+;;; fixnumかどうかを返すプリミティブ
 (define-primitive (fixnum? si env arg)
   (emit-expr si env arg)
   (emit "	andi a0, a0, ~s" fxmask)
   (emit-cmp-bool fxtag))
 
-;;; 空リストかどうかを返します
+;;; 空リストかどうかを返すプリミティブ
 (define-primitive (null? si env arg)
   (emit-expr si env arg)
   (emit "	andi a0, a0, ~s" emptymask)
   (emit-cmp-bool empty_list))
 
-;;; booleanオブジェクトかどうかを返します
+;;; booleanオブジェクトかどうかを返すプリミティブ
 (define-primitive (boolean? si env arg)
   (emit-expr si env arg)
   (emit "	andi a0, a0, ~s" boolmask)
   (emit-cmp-bool is_bool))
 
-;;; 文字オブジェクトかどうかを返します
+;;; 文字オブジェクトかどうかを返すプリミティブ
 (define-primitive (char? si env arg)
   (emit-expr si env arg)
   (emit "	andi a0, a0, ~s" charmask)
   (emit-cmp-bool chartag))
 
-;;; #fなら#tを返し、それ以外は#fを返します。
+;;; #fなら#tを返し、それ以外は#fを返すプリミティブ
 (define-primitive (not si env arg)
   (emit-expr si env arg)
   (emit-cmp-bool bool_f))
 
-;;;
+;;; ビット単位の否定のプリミティブ
 (define-primitive (fxlognot si env arg)
   (emit-expr si env arg)
   (emit "	xori a0, a0, ~s" (immediate-rep -1)))
@@ -291,119 +335,126 @@
 ;;;; 二項基本演算
 
 ;;; 二項基本演算ユーティリティ
-;; arg1、arg2を評価し、結果をそれぞれt0、a0レジスタに代入します
+;; arg1、arg2を評価し、結果をそれぞれt0、a0レジスタに代入するアセンブリ表現を出力します。
 (define (emit-binop si env arg1 arg2)
   (emit-expr si env arg1)
   (emit-stack-save si)			; 結果をスタックに一時退避
   (emit-expr (next-stack-index si) env arg2)
   (emit-stack-load-t0 si))		      ; スタックに退避した値をt0に復元
 
-;;; 整数加算
+;;; 整数加算のプリミティブ
 (define-primitive (fx+ si env arg1 arg2)	; siは、stack indexの略。siが指す先は、空き領域にしてから呼び出す事
   (emit-binop si env arg1 arg2)    
   (emit "	add a0, a0, t0"))
 
-;;; 整数減算
+;;; 整数減算のプリミティブ
 (define-primitive (fx- si env arg1 arg2)
   (emit-binop si env arg1 arg2)
   (emit "	sub a0, t0, a0"))
 
-;;; 整数積
+;;; 整数積のプリミティブ
 (define-primitive (fx* si env arg1 arg2)
   (emit-binop si env arg1 arg2)
   (emit "	sra a0, a0, ~s" fxshift)
   (emit "	mul a0, t0, a0"))
 
-;;; 整数ビット論理積
+;;; 整数ビット論理積のプリミティブ
 (define-primitive (fxlogand si env arg1 arg2)
   (emit-binop si env arg1 arg2)
   (emit "	and a0, a0, t0"))
 
-;;; 整数ビット論理和
+;;; 整数ビット論理和のプリミティブ
 (define-primitive (fxlogor si env arg1 arg2)
   (emit-binop si env arg1 arg2)
   (emit "	or a0, a0, t0"))
 
-;;; 整数等号
+;;; 整数の等号のプリミティブ
 (define-primitive (fx= si env arg1 arg2)
   (emit-binop si env arg1 arg2)
   (emit-cmp-bool))
 
-;;; 整数小なり
+;;; 整数のプリミティブ小なりのプリミティブ
 (define-primitive (fx< si env arg1 arg2)
   (emit-binop si env arg1 arg2)
   (emit "       slt a0, t0, a0")
   (emit "	slli a0, a0, ~s" bool_bit)
   (emit "	ori  a0, a0, ~s" bool_f))
 
-;;; 整数以下
+;;; 整数以下のプリミティブ
 (define-primitive (fx<= si env arg1 arg2)
   (emit-expr si env (list 'fx< arg2 arg1)) ; 大なりを判定して、あとで否定する
   (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
 
-;;; 整数大なり
+;;; 整数大なりのプリミティブ
 (define-primitive (fx> si env arg1 arg2)
   (emit-expr si env (list 'fx< arg2 arg1)))	; 引数を逆にして、小なりを使う
 
-;;; 整数以上
+;;; 整数以上のプリミティブ
 (define-primitive (fx>= si env arg1 arg2)
   (emit-expr si env (list 'fx< arg1 arg2)) ; 小なりを判定して、あとで否定する
   (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
 
-;;; 文字等号
+;;; 文字等号のプリミティブ
 (define-primitive (char= si env arg1 arg2)
   (emit-binop si env arg1 arg2)	; 型判定をしていないので、fx=と同じ内容。eq?をこれにしてOKかも
   (emit-cmp-bool))
 
-;;; 整数小なり
+;;; 整数の小なりのプリミティブ
 (define-primitive (char< si env arg1 arg2)
   (emit-binop si env arg1 arg2)
   (emit "       slt a0, t0, a0")
   (emit "	slli a0, a0, ~s" bool_bit)
   (emit "	ori  a0, a0, ~s" bool_f))
 
-;;; 整数以下
+;;; 整数の以下のプリミティブ
 (define-primitive (char<= si env arg1 arg2)
   (emit-expr si env (list 'char< arg2 arg1)) ; 大なりを判定して、あとで否定する
   (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
 
-;;; 整数大なり
+;;; 整数の大なりのプリミティブ
 (define-primitive (char> si env arg1 arg2)
   (emit-expr si env (list 'char< arg2 arg1)))	; 引数を逆にして、小なりを使う
 
-;;; 整数以上
+;;; 整数の以上のプリミティブ
 (define-primitive (char>= si env arg1 arg2)
   (emit-expr si env (list 'char< arg1 arg2)) ; 小なりを判定して、あとで否定する
   (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
 
 ;;;; 特殊形式関連
+
 ;;; 特殊形式、プリミティブのシンボルかどうかを判定します。
+;; @param symbol 判定対象
 (define (special? symbol)
   (or (member symbol '(if begin let lambda closure set! quote))
       (primitive? symbol)))
 
 ;;;; 条件式
 
-;;; if形式
+;;; if形式関連
+
 ;;; if形式かどうかを返します
+;; @param expr 判定対象のS式
 (define (if? expr)
   (and (tagged-form? 'if expr)
        (or (= (length (cdr expr)) 3)
 	   (error "if? " (format #t "malformed if ~s" expr)))))
 
-;;; if形式の述部(predicate)を取り出します。
+;;; if形式のS式の述部(predicate、真偽を判定するS式)を取り出します。
+;; @param expr ifのS式
 (define (if-test expr)
   (cadr expr))
 
-;;; if形式の帰結部(consequent)を取り出します。
+;;; if形式のS式の帰結部(consequent、述部が真の時の処理部)を取り出します。
+;; @param expr ifのS式
 (define (if-conseq expr)
   (caddr expr))
 
-;;; if形式の代替部(alternative)を取り出します。
+;;; if形式のS式の代替部(alternative、述部が偽の時の処理部)を取り出します。
+;; @param expr ifのS式
 (define (if-altern expr)
   (cadddr expr))
 
-;;; if形式の出力
+;;; if形式のS式のアセンブリ表現を出力します。
 (define (emit-if si env tail expr)
   (let ((alt-label (unique-label))
 	(end-label (unique-label)))
@@ -416,10 +467,14 @@
     (emit-any-expr si env tail (if-altern expr))
     (emit "~a:" end-label)))
 
-;;; and形式
+;;; and形式関連
+
+;;; and形式かどうかを判定します。
+;; @param expr 判定対象のS式
 (define (and? expr)
   (tagged-form? 'and expr))
 
+;;; and形式のアセンブリ表現を出力します。
 (define (emit-and si env expr)
   (let ((pred-len (length (cdr expr))))
     (cond
@@ -434,10 +489,14 @@
 		                 (cons 'and (cddr expr))
 		                #f))))))
 
-;;; or形式
+;;;; or形式関連
+
+;;; or形式かどうかを判定します。
+;; @param expr 判定対象のS式
 (define (or? expr)
   (tagged-form? 'or expr))
 
+;;; and形式のアセンブリ表現を出力します。
 (define (emit-or si env expr)
   (let ((pred-len (length (cdr expr))))
     (cond
@@ -453,30 +512,40 @@
 		                 (cons 'or (cddr expr))))))))
 
 ;;;; let形式
+
 ;;; let形式かどうかを返します
+;; @param expr 判定対象のS式
 (define (let? expr)
   (tagged-form? 'let expr))
 
-;;; letの形式の詳細を返します。
+;;; letの形式の種類を返します。
+;; @param expr 判定対象のS式
+;; @return 'let 'let* 'let-recのいずれか
 (define (let-kind expr)
   (car expr))
 
 ;;; let形式のbinding部分を返します。
+;; @param expr let形式のS式
 (define (let-bindings expr)
   (cadr expr))
 
+;;; let形式を作成します。
+;; @param let binding body... 
 (define make-let list)
 
-
-;;; let形式のbody部分を返します。body部分が複数の式からなる時は、begin形式に変換します
+;;; let形式のbody部分が複数の式からなる時は、begin形式に変換してbody部分を1つの式にします。
+;; @param expr let形式のS式
 (define (let-body expr)
   (if (null? (cdddr expr))
       (caddr expr)
       (make-begin (cddr expr))))
 
+;;; let形式のbodyの並びを返します。
+;; @param expr let形式のS式
 (define (let-body-seq expr)
   (cddr expr))
 
+;;; let形式のアセンブリ表現を出力します。
 (define (emit-let si env tail expr)
   (define (process-let bindings si new-env)
     (cond
@@ -491,52 +560,39 @@
 		     (extend-env (lhs b) si new-env))))))
   (process-let (let-bindings expr) si env))
 
-;;;; let*形式
+;;;; let*形式関連
+
 ;;; let*形式かどうかを返します。
+;; @param expr 判定対象のS式
 (define (let*? expr)
   (tagged-form? 'let* expr))
 
-;;;
-;; let*は、letの入れ子に書き換えてしまう。
-;; 例)
-;; (let* ((x 1))                       (let ((x 1))
-;;  (let* ((x (fx+ x 1))        =>       (let ((x (fx+ x 1)))
-;;         (y (fx+ x 1)))                  (let ((y (fx+ x 1)))
-;;     y))                                   y)))
-(define (emit-let* si env tail expr)
-  (emit-any-expr si env tail
-		 (let ((bindings (let-bindings expr))
-		       (body (let-body expr)))
-		   (cond
-		    ((<= (length bindings) 1)
-		     (list 'let bindings
-			   body))
-		    (else
-		     (list 'let (list (car bindings))
-			   (list 'let* (cdr bindings)
-				 body)))))))
-
 ;;;; letrec形式
+
 ;;; letrec形式かどうかを返します。
+;; @param expr 判定対象のS式
 (define (letrec? expr)
   (or (tagged-form? 'letrec expr) (tagged-form? 'letrec* expr)))
 
-
 ;;; let系形式のどれかか、どうかを返します。
+;; @param expr 判定対象のS式
 (define (any-let? expr)
   (and (pair? expr)
        (member (car expr) '(let let* letrec))))
 
 ;;;; begin形式
+
 ;;; begin形式かどうかを返します。
+;; @param expr 判定対象のS式
 (define (begin? expr)
   (tagged-form? 'begin expr))
 
+;;; begin形式のアセンブリ表現を出力します。
 (define (emit-begin si env tail expr)
   (emit-seq si env tail (cdr expr)))
 
-;; 連続した式を出力します
-;; seq 連続した式。例: ((set-car! some-pair 7) (set-cdr! come-pair 5) some-pair) 
+;;; 連続した式をのアセンブリ表現を出力します
+;; @param seq 連続した式。例: ((set-car! some-pair 7) (set-cdr! come-pair 5) some-pair) 
 (define (emit-seq si env tail seq)
   (cond
    ((null? seq) (error "empty seq"))
@@ -546,11 +602,15 @@
     (emit-expr si env (car seq))
     (emit-seq si env tail (cdr seq)))))
 
+;;; begin形式を作成します。
+;; @param lst begin形式にしたいS式のリスト
 (define (make-begin lst)
   (if (null? (cdr lst))
       (car lst)
       (cons 'begin lst)))
 
+;;; bodyの式のリストを一つのS式(begin形式)にします。
+;; @param lst S式のリスト
 (define (make-body lst)
   (make-begin lst))
 
@@ -561,20 +621,22 @@
 ;; シンボル: クロージャを指している
 
 ;;; 変数かどうかを返します。
+;; @param expr 判定対象
 (define (variable? expr)
   (symbol? expr))
 
 ;;; 自由変数を作成します。
-;; offset クロージャ・オブジェクト内でのオフセット
+;; @param offset クロージャ・オブジェクト内でのオフセット
 (define (free-var offset)
   (list 'free (- offset closuretag)))
 
 ;;; 変数が自由変数かどうかを判定します。
-;; var 判定対象変数
+;; @param var 判定対象変数
 (define (free-var? var)
   (tagged-form? 'free var))
 
 ;;; 式の中から自由変数を取得します。
+;; @param expr S式
 (define (get-free-vars expr)
   (cond
    ((variable? expr)
@@ -595,7 +657,7 @@
 				  expr)))
    (else '())))
 
-;;;
+;;; 変数参照のアセンブリ表現を出力します。
 (define (emit-variable-ref si env var)
   (cond
    ((lookup var env)
@@ -610,34 +672,42 @@
    (else (error "emit-variable-ref. " (format "undefined variable ~s" var)))))
 
 ;;;; set!関連
-;;; set!特殊形式かどうかを返します
+
+;;; set!形式かどうかを返します
+;; @param expr 判定対象のS式
 (define (set? expr)
   (tagged-form? 'set! expr))
 
-;;; set!特殊形式を生成します。
-;; lhs (left hand side)
-;; rhs (right hand side)
+;;; set!形式を生成します。
+;; @param lhs (left hand side)
+;; @param rhs (right hand side)
 (define (make-set! lhs rhs)
   (list 'set! lhs rhs))
 
-;;; set!特殊形式の代入されるシンボルを返します
+;;; set!形式のS式の中の代入されるシンボルを返します
+;; @param expr set!形式のS式
 (define (set-lhs expr)
   (cadr expr))
 
-;;; set!特殊形式の代入する式を返します。
+;;; set!形式の代入する式を返します。
+;; @param expr set!形式のS式
 (define (set-rhs expr)
   (caddr expr))
 
-;;;; lambda特殊形式
-;;; lamda特殊形式かどうかを返します。
+;;;; lambda形式
+
+;;; lamda形式かどうかを返します。
+;; @param expr 判定対象のS式
 (define (lambda? expr)
   (tagged-form? 'lambda expr))
 
-;;; lambda特殊形式の引数部分を返します。
+;;; lambda形式の引数部分を返します。
+;; @param expr lambda形式のS式
 (define (lambda-formals expr)
   (cadr expr))
 
 ;;; lambda式の可変長引数の部分(ドット・リスト)をリストに変換します。
+;; @param expr 引数
 (define (formals-to-vars formals)
   (cond
    ((list? formals)
@@ -647,11 +717,15 @@
    (else
     (list formals))))
 
-;;; lambda式の可変長引数のリストに変換して返します。
+;;; lambda式の可変長引数(ドット・リスト)のリストに変換して返します。
+;; @param expr lambda形式のS式
+;; @return 引数のリスト。元のlambdaのS式でない事に注意
 (define (lambda-vars expr)
   (formals-to-vars (lambda-formals expr)))
 
-;;;
+;;; 引数リストに対して、fをmapします。ドット・リストにも対応します。
+;; @param f 適用する手続き
+;; @param formals 引数のリスト(ドット・リストも化)
 (define (map-formals f formals)
   (cond
    ((list? formals)
@@ -661,35 +735,53 @@
    (else
     (f formals))))
 
-;;; lambda特殊形式の本体部分を返します。
+;;; lambda形式の本体部分を返します。
+;; @param expr lambda形式のS式
 (define (lambda-body expr)
   (make-body (cddr expr)))
 
-;;; lambda特殊形式を生成します。
-;; formals 引数リスト
-;; body 本体
+;;; lambda形式を生成します。
+;; @param formals 引数リスト
+;; @param body 本体
 (define (make-lambda formals body)
   (list 'lambda formals body))
 
-;;;; code特殊形式
-(define (make-code formals free-vars body)
-  (list 'code formals free-vars body))
+;;;; code形式関連
+;; code形式は、本コンパイラ内部専用の形式であり、Schemeには存在しない。
 
+;;; code形式の引数部分を返します
+;; @param expr code形式のS式
 (define (code-formals expr)
   (cadr expr))
 
+;;; code形式の引数の束縛を返します。ドット・リストは、リストに変換されます
+;; @param expr code形式のS式
 (define (code-bound-variables expr)
   (formals-to-vars (code-formals expr)))
 
+;;; code形式の自由変数部分を返します
+;; @param expr code形式のS式
 (define (code-free-variables expr)
   (caddr expr))
 
+;;; code形式の本体部分を返します。
+;; @param expr code形式のS式
 (define (code-body expr)
   (cadddr expr))
 
+;;; 可変長引数形式のcode形式かどうかを返します
+;; @param expr code形式のS式
 (define (code-vararg? expr)
   (not (list? (code-formals expr))))
 
+;;; code形式を生成します。
+;; @param formals 引数リスト
+;; @param free-vars 自由変数
+;; @param body 本体
+(define (make-code formals free-vars body)
+  (list 'code formals free-vars body))
+
+;;; code形式のアセンブリ表現を出力する手続きを返します
 (define (emit-code env)
   (lambda (expr label)
     (emit-function-header label)
@@ -737,8 +829,8 @@
 					   (emit-tail-expr si env body))))))))
 
 ;;; 手続き呼び出しの引数で環境を拡張して、kを実行します。
-;; lvars 引数のリスト
-;; k 拡張された環境で実行したい手続き? thunk?
+;; @param lvars 引数のリスト
+;; @param k 拡張された環境で実行したい手続き? thunk?
 (define (extend-env-with si env lvars k)
   (if (null? lvars)
       (k si env)
@@ -748,8 +840,8 @@
 		       k)))
 
 ;;; 自由変数で環境を拡張して、kを実行します。 (closure対応に必要)
-;; offset クロージャ・オブジェクトの開始アドレスからのオフセット
-;; lvars 自由変数のリスト
+;; @param offset クロージャ・オブジェクトの開始アドレスからのオフセット
+;; @param lvars 自由変数のリスト
 (define (close-env-with offset env lvars k)
   (if (null? lvars)
       (k env)
@@ -758,8 +850,8 @@
 		      (cdr lvars)
 		      k)))
 
-
 ;;;; app関連
+
 ;;; apply可能かどうか
 (define (app? expr env)
   (and (list? expr) (not (null? expr))))
@@ -816,14 +908,14 @@
 	 (and (symbol? val) val))))
 
 ;;;; ヒープ領域オブジェクト関連
-(define objshift 2)
-(define objmask #x07)
+(define objshift 2)			; ヒープ・オブジェクト・シフト量
+(define objmask #x07)			; ヒープ・オブジェクト判定マスク(ANDを取って型タグの値と比較)
 
 ;;; ヒープメモリ確保時の最低サイズ(バイト)
 (define heap-cell-size (ash 1 objshift))
 
 ;;; ヒープメモリを確保します。確保したアドレスはa0に設定
-;; size 確保するバイト数
+;; @param size 確保するバイト数
 (define (emit-heap-alloc size)
   (let ((alloc-size (* (+ (div (- size 1) heap-cell-size) 1) heap-cell-size)))
     (emit "	mv a0, s0")
@@ -840,25 +932,25 @@
   (emit "	add s0, s0, t0"))
 
 ;;; スタックの値をヒープにコピーします。
-;; si コピー元の値のスタックインデックス
-;; offset a0+offset のアドレスに値をコピーします。
+;; @param si コピー元の値のスタックインデックス
+;; @param offset a0+offset のアドレスに値をコピーします。
 (define (emit-stack-to-heap si offset)
   (emit "	lw t0, ~s(sp)" si)
   (emit "	sw t0, ~s(a0)" offset))
 
 ;;; ヒープの値をa0に読み込みます。
-;; offset a0+offset のアドレスの値を読み込みます
+;; @param offset a0+offset のアドレスの値を読み込みます
 (define (emit-heap-load offset)
   (emit "	lw a0, ~s(a0)" offset))
 
 ;;; オブジェクトの型判定をします。
-;; tag オブジェクトの型タグ
+;; @param tag オブジェクトの型タグ
 (define (emit-object? tag si env arg)
   (emit-expr si env arg)
   (emit "	andi a0, a0, ~s" objmask)
   (emit-cmp-bool tag))
 
-;;;; eq?
+;;;; eq?のプリミティブ
 (define-primitive (eq? si env arg1 arg2)
   (emit-binop si env arg1 arg2)
   (emit-cmp-bool))
@@ -869,38 +961,39 @@
 (define paircar 0)			; ペア中のcar部分のオフセット
 (define paircdr 4)			; ペア中のcdr部分のオフセット
 
-;;; cons
+;;; consのプリミティブ
 (define-primitive (cons si env arg1 arg2)
   (emit-binop si env arg1 arg2)
   (emit-stack-save (next-stack-index si))
   (emit-cons si))
 
+;;; consのアセンブリ表現を出力します。consされるオブジェクトはスタックのsiと、(next-stack-index si)にある値
 (define (emit-cons si)
   (emit-heap-alloc pairsize)
   (emit "	ori a0, a0, ~s" pairtag)
   (emit-stack-to-heap si (- paircar pairtag))
   (emit-stack-to-heap (next-stack-index si) (- paircdr pairtag)))
 
-;;; pair?
+;;; pair?のプリミティブ
 (define-primitive (pair? si env arg)
   (emit-object? pairtag si env arg))
 
-;;; car
+;;; carのプリミティブ
 (define-primitive (car si env arg)
   (emit-expr si env arg)
   (emit-heap-load (- paircar pairtag)))
 
-;;; cdr
+;;; cdrのプリミティブ
 (define-primitive (cdr si env arg)
   (emit-expr si env arg)
   (emit-heap-load (- paircdr pairtag)))
 
-;;; set-car!
+;;; set-car!のプリミティブ
 (define-primitive (set-car! si env cell val)
   (emit-binop si env val cell)
   (emit-stack-to-heap si (- paircar pairtag)))
 
-;;; set-cdr!
+;;; set-cdr!のプリミティブ
 (define-primitive (set-cdr! si env cell val)
   (emit-binop si env val cell)
   (emit-stack-to-heap si (- paircdr pairtag)))
@@ -908,12 +1001,13 @@
 ;;;; ベクトル関連
 (define vectortag #x05)			; ベクトルのタグ
 
-;;; ベクトルを作成します。
-;; length ベクトルの要素数
+;;; ベクトルを生成するプリミティブ
+;; @param length ベクトルの要素数
 (define-primitive (make-vector si env length)
   (emit-expr-save si env length)
   (emit-make-vector si))
 
+;;; ベクトル生成のアセンブリ表現を出力します。
 (define (emit-make-vector si)
   (emit "	addi a0, a0, ~s" (ash 1 fxshift)) ; 要素数+1のセルを確保する。+1はlengthデータ保存用
   (emit "	slli a0, a0, ~s" wordshift)	  ; 要素数 -> バイト数へ変換
@@ -921,19 +1015,19 @@
   (emit-stack-to-heap si 0)
   (emit "	ori a0, a0, ~s" vectortag))
 
-;;; ベクトルかどうかを返します。
+;;; ベクトルかどうかを返すプリミティブ
 (define-primitive (vector? si env arg)
   (emit-object? vectortag si env arg))
 
-;;; ベクトルの要素数を返します。
+;;; ベクトルの要素数を返すプリミティブ
 (define-primitive (vector-length si env arg)
   (emit-expr si env arg)
   (emit-heap-load (- vectortag)))	; タグの値の分だけアドレスをずらす
 
-;;; ベクトルに値をセットします。
-;; vector セットされるベクトル
-;; index セットする位置
-;; value セットする値
+;;; ベクトルに値をセットするプリミティブ
+;; @param vector セットされるベクトル
+;; @param index セットする位置
+;; @param value セットする値
 (define-primitive (vector-set! si env vector index value)
   (emit-expr si env index)
   (emit "	addi a0, a0, ~s" (ash 1 fxshift)) ; index=0の位置には長さが入っているのでずれる。 
@@ -957,13 +1051,14 @@
   (emit-heap-load (- vectortag)))
 
 ;;;; 文字列関連
-(define stringtag   #x06)
+(define stringtag   #x06)		; 文字列の型タグ
 
-;;; 文字列を作成します。
+;;; 文字列を作成するプリミティブ
 (define-primitive (make-string si env length)
   (emit-expr-save si env length)
   (emit-make-string si))
 
+;;; 文字列生成のアセンブリ表現を出力します。
 (define (emit-make-string si)
   (emit "	srai a0, a0, ~s" fxshift)
   (emit "	addi a0, a0, ~s" wordsize)
@@ -971,16 +1066,16 @@
   (emit-stack-to-heap si 0)
   (emit "	ori a0, a0, ~s" stringtag))
 
-;;; 文字列かどうかを返します。
+;;; 文字列かどうかを返すプリミティブ
 (define-primitive (string? si env arg)
   (emit-object? stringtag si env arg))
 
-;;; 文字列の長さを返します。
+;;; 文字列の長さを返すプリミティブ
 (define-primitive (string-length si env arg)
   (emit-expr si env arg)
   (emit-heap-load (- stringtag)))
 
-;;; 文字列に文字をセットします。
+;;; 文字列に文字をセットするプリミティブ
 (define-primitive (string-set! si env string index value)
   (emit-expr si env index)
   (emit "	srai a0, a0, ~s" fxshift)
@@ -995,7 +1090,7 @@
   (emit-stack-load-t0 (next-stack-index si))
   (emit "	sb t0, ~s(a0)" (- stringtag)))
 
-;;; 文字列の文字を参照します。
+;;; 文字列の文字を参照するプリミティブ
 (define-primitive (string-ref si env string index)
   (emit-expr si env index)
   (emit "	srai a0, a0, ~s" fxshift)
@@ -1009,12 +1104,16 @@
   (emit "	ori a0, a0, ~s" chartag))
 
 ;;;; quote関連
+
+;;; quote形式かどうかを返します。
 (define (quote? expr)
   (tagged-form? 'quote expr))
 
+;;; quoteされる中身を返します。
 (define (quote-expr expr)
   (cadr expr))
 
+;;; quoteのアセンブリ表現を出力します。
 (define (emit-quote si env expr)
   (cond
    ((immediate? expr) (emit-immediate expr))
@@ -1056,14 +1155,17 @@
 (define closuretag  #x02)		; クロージャ・オブジェクトタグ
 
 ;;; クロージャ特殊形式を作成します。
+;; @param label
+;; @param free-vars
 (define (make-closure label free-vars)
   (cons 'closure (cons label free-vars)))
 
 ;;; クロージャかどうかを返します
+;; @param expr 判定されるS式
 (define (closure? expr)
   (tagged-form? 'closure expr))
 
-;;; 
+;;; クロージャのアセンブリ表現を出力します。
 (define (emit-closure si env expr)
   (let ((label (cadr expr))
 	(free-vars (cddr expr)))
@@ -1099,7 +1201,7 @@
 			  v)))))
      ,expr))
 
-;;; マクロ変換
+;;; マクロ変換します。
 (define (macro-expand expr)
   (define (transform expr bound-vars)
     (cond
