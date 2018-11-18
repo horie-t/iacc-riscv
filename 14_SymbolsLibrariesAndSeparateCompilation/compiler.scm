@@ -239,25 +239,51 @@
 ;;; プリミティブを定義します
 (define-syntax define-primitive
   (syntax-rules ()
-    ;; @param prime-name
+    ;; @param prim-name
     ;; @param si 現在使えるスタック・インデックス
     ;; @param env 環境
     ;; @param arg* ... プリミティブの引数
     ;; @param body プリミティブのbody部分
     ;; @param body* ... bodyが複数の式から構成される場合のbodyリスト
-    ((_ (prime-name si env arg* ...) body body* ...)
+    ((_ (prim-name si env arg* ...) body body* ...)
      (begin
-       (putprop 'prime-name '*is-prime* #t)
-       (putprop 'prime-name '*arg-count
+       (putprop 'prim-name '*is-prim* #t)
+       (putprop 'prim-name '*arg-count*
 		(length '(arg* ...)))
-       (putprop 'prime-name '*emmiter*
+       (putprop 'prim-name '*emmiter*
 		(lambda (si env arg* ...)
 		  body body* ...))))))
 
+;;; ライブラリの定義保持用のグローバル変数
+(define lib-primitives '())
+
+;;; ライブラリのプリミティブを定義します。
+(define-syntax define-lib-primitive
+  (syntax-rules ()
+    ((_ (prim-name arg* ...) body body* ...)
+     (begin
+       (set! lib-primitives (cons 'prim-name lib-primitives))
+       (putprop 'prim-name '*is-lib-prim* #t)
+       (putprop 'prim-name '*arg-count*
+		(length '(arg* ...)))
+       (putprop 'prim-name '*lib-code*
+		(make-lambda '(arg* ...) (make-begin '(body body* ...))))))
+    ((_ (prim-name . varargs) body body* ...)
+     (begin
+       (set! lib-primitives (cons 'prim-name lib-primitives))
+       (putprop 'prim-name '*is-lib-prim* #t)
+       (putprop 'prim-name '*arg-count* 0)
+       (putprop 'prim-name '*vararg* #t)
+       (putprop 'prim-name '*lib-code*
+		(make-lambda 'varargs (make-begin '(body body* ...))))))))
+
+;;; ライブラリをロード
+(load "lib.scm")
+
 ;;; 引数が基本演算かどうかを返します。
-;; @param x 判定対象。xは、add1のようにシンボルで、*is-prime*が#tにセットされている必要がある
+;; @param x 判定対象。xは、add1のようにシンボルで、*is-prim*が#tにセットされている必要がある
 (define (primitive? x)
-  (and (symbol? x) (getprop x '*is-prime*)))
+  (and (symbol? x) (getprop x '*is-prim*)))
 
 ;;; プリミティブのemmiterを返します。
 ;; @param x プリミティブのインスタンス
@@ -269,6 +295,17 @@
   (let ((prim (car expr))
 	(args (cdr expr)))
     (apply (primitive-emitter prim) si env args)))
+
+;;; ライブラリのプリミティブかどうかを判定します。
+;; @param x 判定対象。
+(define (lib-primitive? x)
+  (and (symbol? x) (getprop x '*is-lib-prim*)))
+
+;;; ライブラリのプリミティブのコード部分を返します。
+;; @param x プリミティブ
+(define (lib-primitive-code x)
+  (or (getprop x '*lib-code*)
+      (error "lib-primitive-code:" (format #t "primitive ~s has no lib code; ~s" x))))
 
 ;;;; 単項演算関連
 
@@ -426,7 +463,8 @@
 ;; @param symbol 判定対象
 (define (special? symbol)
   (or (member symbol '(if begin let lambda closure set! quote))
-      (primitive? symbol)))
+      (primitive? symbol)
+      (lib-primitive? symbol)))
 
 ;;;; 条件式
 
@@ -650,6 +688,7 @@
 	    (filter (lambda (v)
 		      (not (member v (map car (let-bindings expr)))))
 		    (get-free-vars (let-body expr)))))
+   ((tagged-form? 'primitive-ref expr) '())
    ((list? expr)
     (append-map get-free-vars (if (and (not (null? expr))
 				       (special? (car expr)))
@@ -782,9 +821,13 @@
   (list 'code formals free-vars body))
 
 ;;; code形式のアセンブリ表現を出力する手続きを返します
-(define (emit-code env)
+;; @param env
+;; @param global? ファイル外に公開するか
+;;
+;; @return code形式の式と、そのlabelを引数に取ってアセンブリ表現を出力する手続き
+(define (emit-code env global?)
   (lambda (expr label)
-    (emit-function-header label)
+    ((if global? emit-function-header emit-label) label)
     (emit "	addi sp, sp, ~s" (- wordsize))
     (emit "	sw ra, 0(sp)")
     (let ((bound-variables (code-bound-variables expr))
@@ -849,6 +892,24 @@
 		      (extend-env (car lvars) (free-var offset) env)
 		      (cdr lvars)
 		      k)))
+
+
+;;;; labels形式関連
+
+;;; labels形式の本体部分を返します。
+;; @param expr labels形式のS式
+(define labels-body let-body)
+
+;;; labels形式のアセンブリ表現を出力します。
+;; @param labels-expr labels形式のS式
+;; @param k S式 (expr) を環境 (env) を受け取って、アセンブリコードを出力する手続き
+(define (emit-labels labels-expr k)
+  (let* ((bindings (let-bindings labels-expr))
+	 (labels (map car bindings))
+	 (codes (map cadr bindings))
+	 (env (make-initial-env '())))
+    (for-each (emit-code env #f) codes labels)
+    (k (labels-body labels-expr) env)))
 
 ;;;; app関連
 
@@ -1185,22 +1246,6 @@
 
 ;;;; 前処理の変換
 
-;; 14ステップで正式なものとなるまでのライブラリの仮実装
-(define (library-hack expr)
-  `(letrec ((length (lambda (lst)
-		      (if (null? lst)
-			  0
-			  (fxadd1 (length (cdr lst))))))
-	    (vector (lambda args
-		      (let ((v (make-vector (length args))))
-			(letrec ((fill (lambda (index args)
-					 (unless (null? args)
-						 (vector-set! v index (car args))
-						 (fill (fx+ index 1) (cdr args))))))
-			  (fill 0 args)
-			  v)))))
-     ,expr))
-
 ;;; マクロ変換します。
 (define (macro-expand expr)
   (define (transform expr bound-vars)
@@ -1429,6 +1474,36 @@
 		constants)
 	   t-expr)))))
 
+;;; ライブラリのプリミティブ呼び出しである注釈(primitive-ref)を追加
+(define (annotate-lib-primitives expr)
+  (define (transform expr)
+    (cond
+     ((and (variable? expr) (lib-primitive?)) `(primitive-ref ,expr))
+     ((list? expr) (map transform expr))
+     (else expr)))
+  (transform expr))
+
+;;; ライブラリのプリミティブの呼び出し
+;; @param label ライブラリのプリミティブの名前
+(define-primitive (primitive-ref si env label)
+  (let ((done-label (unique-label)))
+    ;; ユーザー定義のプリミティブがあれば、labelアドレスの値は0ではない。
+    ;; 0でない時はdone-labelへ行き、何もしない
+    (emit "	la t0, ~s" label)
+    (emit "	lw a0, 0(t0)")
+    (emit "	bnez a0, ~s" done-label)
+    (emit-adjust-base si)
+    (emit-call (primitive-alloc label))
+    (emit-adjust-base (- si))
+    (emit "	la t0, ~s" label)	; ???
+    (emit "	sw a0, 0 (t0)")		; ???
+    (emit-label done-label)))
+
+;;; ライブラリのプリミティブのラベル名を返します。
+;; @param label プリミティブの名前
+(define (primitive-alloc lable)
+  (string->symbol (format "~a_alloc" lable)))
+
 ;;; code特殊形式を使った式に変換して、クロージャに対応します
 ;;; labels特殊形式と、top-envとのリストを返します。
 (define (closure-convertion expr)
@@ -1462,30 +1537,37 @@
 
 ;;; コンパイル前の変換処理
 (define (all-conversions expr)
-  (closure-convertion (lift-constants (assignment-conversion (alpha-conversion (macro-expand (library-hack expr)))))))
+  (closure-convertion (annotate-lib-primitives (lift-constants (assignment-conversion (alpha-conversion (macro-expand (library-hack expr))))))))
+
+(define (all-lib-conversions expr)
+  (closure-convertion (annotate-lib-primitives (assignment-conversion (alpha-conversion (macro-expand expr))))))
 
 ;;;; コンパイラ・メイン処理
 
 ;;; 手続き内部の式のコンパイル
+
+;;; ret 命令を出力します。
+;; @param tail retを出力するかどうか
 (define (emit-ret-if tail)
   (when tail
 	(emit "	lw ra, 0(sp)")
 	(emit "	addi sp, sp, ~s" wordsize)
 	(emit "	ret")))
-  
+
+;;; 式のアセンブリ表現を出力します。
 (define (emit-expr si env expr)
   (emit-any-expr si env #f expr))
 
-;;; 式を評価して、siに保存します。
+;;; 式を評価してsiに保存する、アセンブリ表現を出力します。
 (define (emit-expr-save si env arg)
   (emit-expr si env arg)
   (emit-stack-save si))
 
-;;; 手続き末尾の式のコンパイル
+;;; 手続き末尾の式の、アセンブリ表現を出力します。
 (define (emit-tail-expr si env expr)
   (emit-any-expr si env #t expr))
 
-;;; 式をコンパイルします。
+;;; 式のアセンブリ表現を出力します。
 ;; si スタック・インデックス(stack index)
 ;; env 環境(environment)。変数や関数の名前と、アクセスするための位置情報のリスト
 ;; tail 式が手続きの末尾(tail)かどうか。
@@ -1503,9 +1585,11 @@
    ((app? expr env)   (emit-app si env tail expr))
    (else (error "imvalid expr: " expr))))
 
+;;; アセンブリ言語のラベルを出力します。
 (define (emit-label label)
   (emit "~a:" label))
 
+;;; 関数ヘッダのアセンブリ表現を出力します。
 (define (emit-function-header f)
   (emit "")
   (emit "	.text")
@@ -1513,26 +1597,26 @@
   (emit "	.type ~a, @function" f)
   (emit-label f))
 
-;;;;
+;;; Schemeのエントリポイントのアセンブリ表現を出力します。
 (define (emit-scheme-entry expr env)
   (emit-function-header "L_scheme_entry")
   (emit "	addi sp, sp, ~s" (- wordsize))
   (emit "	sw ra, 0(sp)")
   (emit-tail-expr (- wordsize) env expr))
 
-;;;;
-(define (emit-labels labels-expr)
-  (let* ((bindings (let-bindings labels-expr))
-	 (labels (map car bindings))
-	 (codes (map cadr bindings))
-	 (env (make-initial-env '())))
-    (for-each (emit-code env) codes labels)
-    (emit-scheme-entry (caddr labels-expr) env)))
+;;; ライブラリのアセンブリ表現を出力します。
+(define (emit-library)
+  (define (emit-library-primitive prim-name)
+    (let ((labels (all-lib-conversions (lib-primitive-code prim-name))))
+      (emit-labels labels (lambda (expr env)
+			    ((emit-code env #t) (make-code '() '() expr) (primitive-alloc prim-name))))
+      ;; ユーザーが上書き定義をしなければ、bssセクションに変数を確保。0に初期化される。
+      (emit ".global ~s" prim-name)
+      (emit ".comm ~s, 4, 4" prim-name)))
+  (for-each emit-library-primitive lib-primitives))
 
-;;;; 
-(define (emit-top top)
-  (emit-labels (car top) (cadr top)))
-
+;;; プログラムのアセンブリ表現を出力します。
+;; @param program プログラム(S式一つ)
 (define (emit-program program)
   (emit-function-header "scheme_entry")
   (emit "	addi sp, sp, ~s" (- (* wordsize 3)))
@@ -1546,7 +1630,7 @@
   (emit "	lw a1, ~s(sp)" (* wordsize 2))
   (emit "	addi sp, sp, ~s" (* wordsize 3))
   (emit "	ret")
-  (emit-labels (all-conversions program)))
+  (emit-labels (all-conversions program) emit-scheme-entry))
 
 ;;;; 自動テスト関連
 
@@ -1555,6 +1639,12 @@
   (with-output-to-file (path "stst.s")
     (lambda ()
 	(emit-program expr))))
+
+;;; ライブラリのコンパイル
+(define (compile-library)
+  (with-output-to-file (path "lib.s")
+    (lambda ()
+      (emit-library)))
 
 ;;; 実行ファイルの作成
 (define (build)
