@@ -179,7 +179,6 @@
 (define (fixnum? x)
   (and (integer? x) (exact? x) (<= fxlower x fxupper)))
 
-
 ;;;; 即値関連関数
 
 ;;; 即値かどうかを返します。
@@ -234,56 +233,15 @@
 			  (hashtable-set! entry property val)
 			  entry)))))
 
-;;;; プリミティブ関連
-
-;;; プリミティブを定義します
-(define-syntax define-primitive
-  (syntax-rules ()
-    ;; @param prim-name
-    ;; @param si 現在使えるスタック・インデックス
-    ;; @param env 環境
-    ;; @param arg* ... プリミティブの引数
-    ;; @param body プリミティブのbody部分
-    ;; @param body* ... bodyが複数の式から構成される場合のbodyリスト
-    ((_ (prim-name si env arg* ...) body body* ...)
-     (begin
-       (putprop 'prim-name '*is-prim* #t)
-       (putprop 'prim-name '*arg-count*
-		(length '(arg* ...)))
-       (putprop 'prim-name '*emmiter*
-		(lambda (si env arg* ...)
-		  body body* ...))))))
-
-;;; ライブラリの定義保持用のグローバル変数
-(define lib-primitives '())
-
-;;; ライブラリのプリミティブを定義します。
-(define-syntax define-lib-primitive
-  (syntax-rules ()
-    ((_ (prim-name arg* ...) body body* ...)
-     (begin
-       (set! lib-primitives (cons 'prim-name lib-primitives))
-       (putprop 'prim-name '*is-lib-prim* #t)
-       (putprop 'prim-name '*arg-count*
-		(length '(arg* ...)))
-       (putprop 'prim-name '*lib-code*
-		(make-lambda '(arg* ...) (make-begin '(body body* ...))))))
-    ((_ (prim-name . varargs) body body* ...)
-     (begin
-       (set! lib-primitives (cons 'prim-name lib-primitives))
-       (putprop 'prim-name '*is-lib-prim* #t)
-       (putprop 'prim-name '*arg-count* 0)
-       (putprop 'prim-name '*vararg* #t)
-       (putprop 'prim-name '*lib-code*
-		(make-lambda 'varargs (make-begin '(body body* ...))))))))
-
-;;; ライブラリをロード
-(load "lib.scm")
-
 ;;; 引数が基本演算かどうかを返します。
 ;; @param x 判定対象。xは、add1のようにシンボルで、*is-prim*が#tにセットされている必要がある
 (define (primitive? x)
   (and (symbol? x) (getprop x '*is-prim*)))
+
+;;; 基本演算呼び出しかどうかを返します。
+;; @param expr 判定対象
+(define (primcall? expr)
+  (and (pair? expr) (primitive? (car expr))))
 
 ;;; プリミティブのemmiterを返します。
 ;; @param x プリミティブのインスタンス
@@ -307,67 +265,6 @@
   (or (getprop x '*lib-code*)
       (error "lib-primitive-code:" (format #t "primitive ~s has no lib code; ~s" x))))
 
-;;;; 単項演算関連
-
-;;; 単項演算呼び出し(単項演算処理)かどうかを返します。
-;; @param expr 単項演算呼び出しは(op arg)の形式なので、最初はpairで、carがprimitive?がtrueを返すものでなければならない。
-(define (primcall? expr)
-  (and (pair? expr) (primitive? (car expr))))
-
-;;; 引数に1を加えた値を返すプリミティブ
-(define-primitive (fxadd1 si env arg)
-  (emit-expr si env arg)
-  (emit "	addi a0, a0, ~s" (immediate-rep 1)))
-
-;;; 引数から1を引いた値を返すプリミティブ
-(define-primitive (fxsub1 si env arg)
-  (emit-expr si env arg)
-  (emit "	addi a0, a0, ~s" (immediate-rep -1)))
-
-;;; fixnumからcharに変換するプリミティブ
-(define-primitive (fixnum->char si env arg)
-  (emit-expr si env arg)
-  (emit "	slli a0, a0, ~s" (- charshift fxshift))
-  (emit "	ori  a0, a0, ~s" chartag))
-
-;;; charからfixnumに変換するプリミティブ
-(define-primitive (char->fixnum si env arg)
-  (emit-expr si env arg)
-  (emit "	srli a0, a0, ~s" (- charshift fxshift)))
-
-;;; fixnumかどうかを返すプリミティブ
-(define-primitive (fixnum? si env arg)
-  (emit-expr si env arg)
-  (emit "	andi a0, a0, ~s" fxmask)
-  (emit-cmp-bool fxtag))
-
-;;; 空リストかどうかを返すプリミティブ
-(define-primitive (null? si env arg)
-  (emit-expr si env arg)
-  (emit "	andi a0, a0, ~s" emptymask)
-  (emit-cmp-bool empty_list))
-
-;;; booleanオブジェクトかどうかを返すプリミティブ
-(define-primitive (boolean? si env arg)
-  (emit-expr si env arg)
-  (emit "	andi a0, a0, ~s" boolmask)
-  (emit-cmp-bool is_bool))
-
-;;; 文字オブジェクトかどうかを返すプリミティブ
-(define-primitive (char? si env arg)
-  (emit-expr si env arg)
-  (emit "	andi a0, a0, ~s" charmask)
-  (emit-cmp-bool chartag))
-
-;;; #fなら#tを返し、それ以外は#fを返すプリミティブ
-(define-primitive (not si env arg)
-  (emit-expr si env arg)
-  (emit-cmp-bool bool_f))
-
-;;; ビット単位の否定のプリミティブ
-(define-primitive (fxlognot si env arg)
-  (emit-expr si env arg)
-  (emit "	xori a0, a0, ~s" (immediate-rep -1)))
 
 ;;;; 二項基本演算
 
@@ -378,84 +275,6 @@
   (emit-stack-save si)			; 結果をスタックに一時退避
   (emit-expr (next-stack-index si) env arg2)
   (emit-stack-load-t0 si))		      ; スタックに退避した値をt0に復元
-
-;;; 整数加算のプリミティブ
-(define-primitive (fx+ si env arg1 arg2)	; siは、stack indexの略。siが指す先は、空き領域にしてから呼び出す事
-  (emit-binop si env arg1 arg2)    
-  (emit "	add a0, a0, t0"))
-
-;;; 整数減算のプリミティブ
-(define-primitive (fx- si env arg1 arg2)
-  (emit-binop si env arg1 arg2)
-  (emit "	sub a0, t0, a0"))
-
-;;; 整数積のプリミティブ
-(define-primitive (fx* si env arg1 arg2)
-  (emit-binop si env arg1 arg2)
-  (emit "	sra a0, a0, ~s" fxshift)
-  (emit "	mul a0, t0, a0"))
-
-;;; 整数ビット論理積のプリミティブ
-(define-primitive (fxlogand si env arg1 arg2)
-  (emit-binop si env arg1 arg2)
-  (emit "	and a0, a0, t0"))
-
-;;; 整数ビット論理和のプリミティブ
-(define-primitive (fxlogor si env arg1 arg2)
-  (emit-binop si env arg1 arg2)
-  (emit "	or a0, a0, t0"))
-
-;;; 整数の等号のプリミティブ
-(define-primitive (fx= si env arg1 arg2)
-  (emit-binop si env arg1 arg2)
-  (emit-cmp-bool))
-
-;;; 整数のプリミティブ小なりのプリミティブ
-(define-primitive (fx< si env arg1 arg2)
-  (emit-binop si env arg1 arg2)
-  (emit "       slt a0, t0, a0")
-  (emit "	slli a0, a0, ~s" bool_bit)
-  (emit "	ori  a0, a0, ~s" bool_f))
-
-;;; 整数以下のプリミティブ
-(define-primitive (fx<= si env arg1 arg2)
-  (emit-expr si env (list 'fx< arg2 arg1)) ; 大なりを判定して、あとで否定する
-  (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
-
-;;; 整数大なりのプリミティブ
-(define-primitive (fx> si env arg1 arg2)
-  (emit-expr si env (list 'fx< arg2 arg1)))	; 引数を逆にして、小なりを使う
-
-;;; 整数以上のプリミティブ
-(define-primitive (fx>= si env arg1 arg2)
-  (emit-expr si env (list 'fx< arg1 arg2)) ; 小なりを判定して、あとで否定する
-  (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
-
-;;; 文字等号のプリミティブ
-(define-primitive (char= si env arg1 arg2)
-  (emit-binop si env arg1 arg2)	; 型判定をしていないので、fx=と同じ内容。eq?をこれにしてOKかも
-  (emit-cmp-bool))
-
-;;; 整数の小なりのプリミティブ
-(define-primitive (char< si env arg1 arg2)
-  (emit-binop si env arg1 arg2)
-  (emit "       slt a0, t0, a0")
-  (emit "	slli a0, a0, ~s" bool_bit)
-  (emit "	ori  a0, a0, ~s" bool_f))
-
-;;; 整数の以下のプリミティブ
-(define-primitive (char<= si env arg1 arg2)
-  (emit-expr si env (list 'char< arg2 arg1)) ; 大なりを判定して、あとで否定する
-  (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
-
-;;; 整数の大なりのプリミティブ
-(define-primitive (char> si env arg1 arg2)
-  (emit-expr si env (list 'char< arg2 arg1)))	; 引数を逆にして、小なりを使う
-
-;;; 整数の以上のプリミティブ
-(define-primitive (char>= si env arg1 arg2)
-  (emit-expr si env (list 'char< arg1 arg2)) ; 小なりを判定して、あとで否定する
-  (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
 
 ;;;; 特殊形式関連
 
@@ -1011,22 +830,11 @@
   (emit "	andi a0, a0, ~s" objmask)
   (emit-cmp-bool tag))
 
-;;;; eq?のプリミティブ
-(define-primitive (eq? si env arg1 arg2)
-  (emit-binop si env arg1 arg2)
-  (emit-cmp-bool))
-
 ;;;; ペア関連
 (define pairtag #b001)			; ペアのタグ
 (define pairsize 8)			; ペアのメモリサイズ(バイト)
 (define paircar 0)			; ペア中のcar部分のオフセット
 (define paircdr 4)			; ペア中のcdr部分のオフセット
-
-;;; consのプリミティブ
-(define-primitive (cons si env arg1 arg2)
-  (emit-binop si env arg1 arg2)
-  (emit-stack-save (next-stack-index si))
-  (emit-cons si))
 
 ;;; consのアセンブリ表現を出力します。consされるオブジェクトはスタックのsiと、(next-stack-index si)にある値
 (define (emit-cons si)
@@ -1035,38 +843,8 @@
   (emit-stack-to-heap si (- paircar pairtag))
   (emit-stack-to-heap (next-stack-index si) (- paircdr pairtag)))
 
-;;; pair?のプリミティブ
-(define-primitive (pair? si env arg)
-  (emit-object? pairtag si env arg))
-
-;;; carのプリミティブ
-(define-primitive (car si env arg)
-  (emit-expr si env arg)
-  (emit-heap-load (- paircar pairtag)))
-
-;;; cdrのプリミティブ
-(define-primitive (cdr si env arg)
-  (emit-expr si env arg)
-  (emit-heap-load (- paircdr pairtag)))
-
-;;; set-car!のプリミティブ
-(define-primitive (set-car! si env cell val)
-  (emit-binop si env val cell)
-  (emit-stack-to-heap si (- paircar pairtag)))
-
-;;; set-cdr!のプリミティブ
-(define-primitive (set-cdr! si env cell val)
-  (emit-binop si env val cell)
-  (emit-stack-to-heap si (- paircdr pairtag)))
-
 ;;;; ベクトル関連
 (define vectortag #x05)			; ベクトルのタグ
-
-;;; ベクトルを生成するプリミティブ
-;; @param length ベクトルの要素数
-(define-primitive (make-vector si env length)
-  (emit-expr-save si env length)
-  (emit-make-vector si))
 
 ;;; ベクトル生成のアセンブリ表現を出力します。
 (define (emit-make-vector si)
@@ -1076,48 +854,8 @@
   (emit-stack-to-heap si 0)
   (emit "	ori a0, a0, ~s" vectortag))
 
-;;; ベクトルかどうかを返すプリミティブ
-(define-primitive (vector? si env arg)
-  (emit-object? vectortag si env arg))
-
-;;; ベクトルの要素数を返すプリミティブ
-(define-primitive (vector-length si env arg)
-  (emit-expr si env arg)
-  (emit-heap-load (- vectortag)))	; タグの値の分だけアドレスをずらす
-
-;;; ベクトルに値をセットするプリミティブ
-;; @param vector セットされるベクトル
-;; @param index セットする位置
-;; @param value セットする値
-(define-primitive (vector-set! si env vector index value)
-  (emit-expr si env index)
-  (emit "	addi a0, a0, ~s" (ash 1 fxshift)) ; index=0の位置には長さが入っているのでずれる。 
-  (emit "	slli a0, a0, ~s" (- objshift fxshift))
-  (emit-stack-save si)
-  (emit-expr-save (next-stack-index si) env value)
-  (emit-expr si env vector)
-  (emit-stack-load-t0 si)
-  (emit "	add a0, a0, t0")
-  (emit-stack-to-heap (next-stack-index si) (- vectortag)))
-
-;;; ベクトルの要素の値を取得します。
-(define-primitive (vector-ref si env vector index)
-  (emit-expr si env index)
-  (emit "	addi a0, a0, ~s" (ash 1 fxshift)) ; index=0の位置には長さが入っているのでずれる。 
-  (emit "	slli a0, a0, ~s" (- objshift fxshift))
-  (emit-stack-save si)
-  (emit-expr si env vector)
-  (emit-stack-load-t0 si)
-  (emit "	add a0, a0, t0")
-  (emit-heap-load (- vectortag)))
-
 ;;;; 文字列関連
 (define stringtag   #x06)		; 文字列の型タグ
-
-;;; 文字列を作成するプリミティブ
-(define-primitive (make-string si env length)
-  (emit-expr-save si env length)
-  (emit-make-string si))
 
 ;;; 文字列生成のアセンブリ表現を出力します。
 (define (emit-make-string si)
@@ -1126,43 +864,6 @@
   (emit-heap-alloc-dynamic)
   (emit-stack-to-heap si 0)
   (emit "	ori a0, a0, ~s" stringtag))
-
-;;; 文字列かどうかを返すプリミティブ
-(define-primitive (string? si env arg)
-  (emit-object? stringtag si env arg))
-
-;;; 文字列の長さを返すプリミティブ
-(define-primitive (string-length si env arg)
-  (emit-expr si env arg)
-  (emit-heap-load (- stringtag)))
-
-;;; 文字列に文字をセットするプリミティブ
-(define-primitive (string-set! si env string index value)
-  (emit-expr si env index)
-  (emit "	srai a0, a0, ~s" fxshift)
-  (emit "	addi a0, a0, ~s" wordsize)
-  (emit-stack-save si)
-  (emit-expr (next-stack-index si) env value)
-  (emit "	srai a0, a0, ~s" charshift)
-  (emit-stack-save (next-stack-index si))
-  (emit-expr si env string)
-  (emit-stack-load-t0 si)
-  (emit "	add a0, a0, t0")
-  (emit-stack-load-t0 (next-stack-index si))
-  (emit "	sb t0, ~s(a0)" (- stringtag)))
-
-;;; 文字列の文字を参照するプリミティブ
-(define-primitive (string-ref si env string index)
-  (emit-expr si env index)
-  (emit "	srai a0, a0, ~s" fxshift)
-  (emit "	addi a0, a0, ~s" wordsize)
-  (emit-stack-save si)
-  (emit-expr si env string)
-  (emit-stack-load-t0 si)
-  (emit "	add a0, a0, t0")
-  (emit "	lb a0, ~s(a0)" (- stringtag))
-  (emit "	slli a0, a0, ~s" charshift)
-  (emit "	ori a0, a0, ~s" chartag))
 
 ;;;; quote関連
 
@@ -1478,27 +1179,12 @@
 (define (annotate-lib-primitives expr)
   (define (transform expr)
     (cond
-     ((and (variable? expr) (lib-primitive?)) `(primitive-ref ,expr))
+     ((and (variable? expr) (lib-primitive? expr)) `(primitive-ref ,expr))
      ((list? expr) (map transform expr))
      (else expr)))
   (transform expr))
 
 ;;; ライブラリのプリミティブの呼び出し
-;; @param label ライブラリのプリミティブの名前
-(define-primitive (primitive-ref si env label)
-  (let ((done-label (unique-label)))
-    ;; ユーザー定義のプリミティブがあれば、labelアドレスの値は0ではない。
-    ;; 0でない時はdone-labelへ行き、何もしない
-    (emit "	la t0, ~s" label)
-    (emit "	lw a0, 0(t0)")
-    (emit "	bnez a0, ~s" done-label)
-    (emit-adjust-base si)
-    (emit-call (primitive-alloc label))
-    (emit-adjust-base (- si))
-    (emit "	la t0, ~s" label)	; ???
-    (emit "	sw a0, 0 (t0)")		; ???
-    (emit-label done-label)))
-
 ;;; ライブラリのプリミティブのラベル名を返します。
 ;; @param label プリミティブの名前
 (define (primitive-alloc lable)
@@ -1537,10 +1223,333 @@
 
 ;;; コンパイル前の変換処理
 (define (all-conversions expr)
-  (closure-convertion (annotate-lib-primitives (lift-constants (assignment-conversion (alpha-conversion (macro-expand (library-hack expr))))))))
+  (closure-convertion (annotate-lib-primitives (lift-constants (assignment-conversion (alpha-conversion (macro-expand expr)))))))
 
 (define (all-lib-conversions expr)
   (closure-convertion (annotate-lib-primitives (assignment-conversion (alpha-conversion (macro-expand expr))))))
+
+;;;; プリミティブ関連
+
+;;; プリミティブを定義します
+(define-syntax define-primitive
+  (syntax-rules ()
+    ;; @param prim-name
+    ;; @param si 現在使えるスタック・インデックス
+    ;; @param env 環境
+    ;; @param arg* ... プリミティブの引数
+    ;; @param body プリミティブのbody部分
+    ;; @param body* ... bodyが複数の式から構成される場合のbodyリスト
+    ((_ (prim-name si env arg* ...) body body* ...)
+     (begin
+       (putprop 'prim-name '*is-prim* #t)
+       (putprop 'prim-name '*arg-count*
+		(length '(arg* ...)))
+       (putprop 'prim-name '*emmiter*
+		(lambda (si env arg* ...)
+		  body body* ...))))))
+
+;;; ライブラリの定義保持用のグローバル変数
+(define lib-primitives '())
+
+;;; ライブラリのプリミティブを定義します。
+(define-syntax define-lib-primitive
+  (syntax-rules ()
+    ((_ (prim-name arg* ...) body body* ...)
+     (begin
+       (set! lib-primitives (cons 'prim-name lib-primitives))
+       (putprop 'prim-name '*is-lib-prim* #t)
+       (putprop 'prim-name '*arg-count*
+		(length '(arg* ...)))
+       (putprop 'prim-name '*lib-code*
+		(make-lambda '(arg* ...) (make-begin '(body body* ...))))))
+    ((_ (prim-name . varargs) body body* ...)
+     (begin
+       (set! lib-primitives (cons 'prim-name lib-primitives))
+       (putprop 'prim-name '*is-lib-prim* #t)
+       (putprop 'prim-name '*arg-count* 0)
+       (putprop 'prim-name '*vararg* #t)
+       (putprop 'prim-name '*lib-code*
+		(make-lambda 'varargs (make-begin '(body body* ...))))))))
+
+;;; ライブラリをロード
+(load "lib.scm")
+
+;;;; 単項演算関連
+
+;;; 引数に1を加えた値を返すプリミティブ
+(define-primitive (fxadd1 si env arg)
+  (emit-expr si env arg)
+  (emit "	addi a0, a0, ~s" (immediate-rep 1)))
+
+;;; 引数から1を引いた値を返すプリミティブ
+(define-primitive (fxsub1 si env arg)
+  (emit-expr si env arg)
+  (emit "	addi a0, a0, ~s" (immediate-rep -1)))
+
+;;; fixnumからcharに変換するプリミティブ
+(define-primitive (fixnum->char si env arg)
+  (emit-expr si env arg)
+  (emit "	slli a0, a0, ~s" (- charshift fxshift))
+  (emit "	ori  a0, a0, ~s" chartag))
+
+;;; charからfixnumに変換するプリミティブ
+(define-primitive (char->fixnum si env arg)
+  (emit-expr si env arg)
+  (emit "	srli a0, a0, ~s" (- charshift fxshift)))
+
+;;; fixnumかどうかを返すプリミティブ
+(define-primitive (fixnum? si env arg)
+  (emit-expr si env arg)
+  (emit "	andi a0, a0, ~s" fxmask)
+  (emit-cmp-bool fxtag))
+
+;;; 空リストかどうかを返すプリミティブ
+(define-primitive (null? si env arg)
+  (emit-expr si env arg)
+  (emit "	andi a0, a0, ~s" emptymask)
+  (emit-cmp-bool empty_list))
+
+;;; booleanオブジェクトかどうかを返すプリミティブ
+(define-primitive (boolean? si env arg)
+  (emit-expr si env arg)
+  (emit "	andi a0, a0, ~s" boolmask)
+  (emit-cmp-bool is_bool))
+
+;;; 文字オブジェクトかどうかを返すプリミティブ
+(define-primitive (char? si env arg)
+  (emit-expr si env arg)
+  (emit "	andi a0, a0, ~s" charmask)
+  (emit-cmp-bool chartag))
+
+;;; #fなら#tを返し、それ以外は#fを返すプリミティブ
+(define-primitive (not si env arg)
+  (emit-expr si env arg)
+  (emit-cmp-bool bool_f))
+
+;;; ビット単位の否定のプリミティブ
+(define-primitive (fxlognot si env arg)
+  (emit-expr si env arg)
+  (emit "	xori a0, a0, ~s" (immediate-rep -1)))
+
+;;; 整数加算のプリミティブ
+(define-primitive (fx+ si env arg1 arg2)	; siは、stack indexの略。siが指す先は、空き領域にしてから呼び出す事
+  (emit-binop si env arg1 arg2)    
+  (emit "	add a0, a0, t0"))
+
+;;; 整数減算のプリミティブ
+(define-primitive (fx- si env arg1 arg2)
+  (emit-binop si env arg1 arg2)
+  (emit "	sub a0, t0, a0"))
+
+;;; 整数積のプリミティブ
+(define-primitive (fx* si env arg1 arg2)
+  (emit-binop si env arg1 arg2)
+  (emit "	sra a0, a0, ~s" fxshift)
+  (emit "	mul a0, t0, a0"))
+
+;;; 整数ビット論理積のプリミティブ
+(define-primitive (fxlogand si env arg1 arg2)
+  (emit-binop si env arg1 arg2)
+  (emit "	and a0, a0, t0"))
+
+;;; 整数ビット論理和のプリミティブ
+(define-primitive (fxlogor si env arg1 arg2)
+  (emit-binop si env arg1 arg2)
+  (emit "	or a0, a0, t0"))
+
+;;; 整数の等号のプリミティブ
+(define-primitive (fx= si env arg1 arg2)
+  (emit-binop si env arg1 arg2)
+  (emit-cmp-bool))
+
+;;; 整数のプリミティブ小なりのプリミティブ
+(define-primitive (fx< si env arg1 arg2)
+  (emit-binop si env arg1 arg2)
+  (emit "       slt a0, t0, a0")
+  (emit "	slli a0, a0, ~s" bool_bit)
+  (emit "	ori  a0, a0, ~s" bool_f))
+
+;;; 整数以下のプリミティブ
+(define-primitive (fx<= si env arg1 arg2)
+  (emit-expr si env (list 'fx< arg2 arg1)) ; 大なりを判定して、あとで否定する
+  (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
+
+;;; 整数大なりのプリミティブ
+(define-primitive (fx> si env arg1 arg2)
+  (emit-expr si env (list 'fx< arg2 arg1)))	; 引数を逆にして、小なりを使う
+
+;;; 整数以上のプリミティブ
+(define-primitive (fx>= si env arg1 arg2)
+  (emit-expr si env (list 'fx< arg1 arg2)) ; 小なりを判定して、あとで否定する
+  (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
+
+;;; 文字等号のプリミティブ
+(define-primitive (char= si env arg1 arg2)
+  (emit-binop si env arg1 arg2)	; 型判定をしていないので、fx=と同じ内容。eq?をこれにしてOKかも
+  (emit-cmp-bool))
+
+;;; 整数の小なりのプリミティブ
+(define-primitive (char< si env arg1 arg2)
+  (emit-binop si env arg1 arg2)
+  (emit "       slt a0, t0, a0")
+  (emit "	slli a0, a0, ~s" bool_bit)
+  (emit "	ori  a0, a0, ~s" bool_f))
+
+;;; 整数の以下のプリミティブ
+(define-primitive (char<= si env arg1 arg2)
+  (emit-expr si env (list 'char< arg2 arg1)) ; 大なりを判定して、あとで否定する
+  (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
+
+;;; 整数の大なりのプリミティブ
+(define-primitive (char> si env arg1 arg2)
+  (emit-expr si env (list 'char< arg2 arg1)))	; 引数を逆にして、小なりを使う
+
+;;; 整数の以上のプリミティブ
+(define-primitive (char>= si env arg1 arg2)
+  (emit-expr si env (list 'char< arg1 arg2)) ; 小なりを判定して、あとで否定する
+  (emit "	xori a0, a0, ~s" (ash 1 bool_bit)))
+
+;;;; ヒープ領域オブジェクト関連
+
+;;; eq?のプリミティブ
+(define-primitive (eq? si env arg1 arg2)
+  (emit-binop si env arg1 arg2)
+  (emit-cmp-bool))
+
+;;; consのプリミティブ
+(define-primitive (cons si env arg1 arg2)
+  (emit-binop si env arg1 arg2)
+  (emit-stack-save (next-stack-index si))
+  (emit-cons si))
+
+;;; pair?のプリミティブ
+(define-primitive (pair? si env arg)
+  (emit-object? pairtag si env arg))
+
+;;; carのプリミティブ
+(define-primitive (car si env arg)
+  (emit-expr si env arg)
+  (emit-heap-load (- paircar pairtag)))
+
+;;; cdrのプリミティブ
+(define-primitive (cdr si env arg)
+  (emit-expr si env arg)
+  (emit-heap-load (- paircdr pairtag)))
+
+;;; set-car!のプリミティブ
+(define-primitive (set-car! si env cell val)
+  (emit-binop si env val cell)
+  (emit-stack-to-heap si (- paircar pairtag)))
+
+;;; set-cdr!のプリミティブ
+(define-primitive (set-cdr! si env cell val)
+  (emit-binop si env val cell)
+  (emit-stack-to-heap si (- paircdr pairtag)))
+
+;;;; ベクトル関連
+
+;;; ベクトルを生成するプリミティブ
+;; @param length ベクトルの要素数
+(define-primitive (make-vector si env length)
+  (emit-expr-save si env length)
+  (emit-make-vector si))
+
+;;; ベクトルかどうかを返すプリミティブ
+(define-primitive (vector? si env arg)
+  (emit-object? vectortag si env arg))
+
+;;; ベクトルの要素数を返すプリミティブ
+(define-primitive (vector-length si env arg)
+  (emit-expr si env arg)
+  (emit-heap-load (- vectortag)))	; タグの値の分だけアドレスをずらす
+
+;;; ベクトルに値をセットするプリミティブ
+;; @param vector セットされるベクトル
+;; @param index セットする位置
+;; @param value セットする値
+(define-primitive (vector-set! si env vector index value)
+  (emit-expr si env index)
+  (emit "	addi a0, a0, ~s" (ash 1 fxshift)) ; index=0の位置には長さが入っているのでずれる。 
+  (emit "	slli a0, a0, ~s" (- objshift fxshift))
+  (emit-stack-save si)
+  (emit-expr-save (next-stack-index si) env value)
+  (emit-expr si env vector)
+  (emit-stack-load-t0 si)
+  (emit "	add a0, a0, t0")
+  (emit-stack-to-heap (next-stack-index si) (- vectortag)))
+
+;;; ベクトルの要素の値を取得します。
+(define-primitive (vector-ref si env vector index)
+  (emit-expr si env index)
+  (emit "	addi a0, a0, ~s" (ash 1 fxshift)) ; index=0の位置には長さが入っているのでずれる。 
+  (emit "	slli a0, a0, ~s" (- objshift fxshift))
+  (emit-stack-save si)
+  (emit-expr si env vector)
+  (emit-stack-load-t0 si)
+  (emit "	add a0, a0, t0")
+  (emit-heap-load (- vectortag)))
+
+;;;; 文字列関連
+
+;;; 文字列を作成するプリミティブ
+(define-primitive (make-string si env length)
+  (emit-expr-save si env length)
+  (emit-make-string si))
+
+;;; 文字列かどうかを返すプリミティブ
+(define-primitive (string? si env arg)
+  (emit-object? stringtag si env arg))
+
+;;; 文字列の長さを返すプリミティブ
+(define-primitive (string-length si env arg)
+  (emit-expr si env arg)
+  (emit-heap-load (- stringtag)))
+
+;;; 文字列に文字をセットするプリミティブ
+(define-primitive (string-set! si env string index value)
+  (emit-expr si env index)
+  (emit "	srai a0, a0, ~s" fxshift)
+  (emit "	addi a0, a0, ~s" wordsize)
+  (emit-stack-save si)
+  (emit-expr (next-stack-index si) env value)
+  (emit "	srai a0, a0, ~s" charshift)
+  (emit-stack-save (next-stack-index si))
+  (emit-expr si env string)
+  (emit-stack-load-t0 si)
+  (emit "	add a0, a0, t0")
+  (emit-stack-load-t0 (next-stack-index si))
+  (emit "	sb t0, ~s(a0)" (- stringtag)))
+
+;;; 文字列の文字を参照するプリミティブ
+(define-primitive (string-ref si env string index)
+  (emit-expr si env index)
+  (emit "	srai a0, a0, ~s" fxshift)
+  (emit "	addi a0, a0, ~s" wordsize)
+  (emit-stack-save si)
+  (emit-expr si env string)
+  (emit-stack-load-t0 si)
+  (emit "	add a0, a0, t0")
+  (emit "	lb a0, ~s(a0)" (- stringtag))
+  (emit "	slli a0, a0, ~s" charshift)
+  (emit "	ori a0, a0, ~s" chartag))
+
+;;;; ライブラリ関連
+
+;; @param label ライブラリのプリミティブの名前
+(define-primitive (primitive-ref si env label)
+  (let ((done-label (unique-label)))
+    ;; ユーザー定義のプリミティブがあれば、labelアドレスの値は0ではない。
+    ;; 0でない時はdone-labelへ行き、何もしない
+    (emit "	la t0, ~s" label)
+    (emit "	lw a0, 0(t0)")
+    (emit "	bnez a0, ~s" done-label)
+    (emit-adjust-base si)
+    (emit "	call ~a" (primitive-alloc label))
+    (emit-adjust-base (- si))
+    (emit "	la t0, ~s" label)	; ???
+    (emit "	sw a0, 0 (t0)")		; ???
+    (emit-label done-label)))
+
 
 ;;;; コンパイラ・メイン処理
 
@@ -1612,7 +1621,8 @@
 			    ((emit-code env #t) (make-code '() '() expr) (primitive-alloc prim-name))))
       ;; ユーザーが上書き定義をしなければ、bssセクションに変数を確保。0に初期化される。
       (emit ".global ~s" prim-name)
-      (emit ".comm ~s, 4, 4" prim-name)))
+      (emit ".comm ~s, 4, 4" prim-name)
+      (emit "")))
   (for-each emit-library-primitive lib-primitives))
 
 ;;; プログラムのアセンブリ表現を出力します。
@@ -1644,7 +1654,7 @@
 (define (compile-library)
   (with-output-to-file (path "lib.s")
     (lambda ()
-      (emit-library)))
+      (emit-library))))
 
 ;;; 実行ファイルの作成
 (define (build)

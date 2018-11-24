@@ -2,7 +2,7 @@ CC=riscv64-unknown-elf-gcc
 
 TARGET=stst
 
-$(TARGET): stst.s runtime.c
+$(TARGET): stst.s lib.s runtime.c
 	$(CC) -Wno-int-to-pointer-cast -T link.ld -o $@ $^
 
 run: $(TARGET)
@@ -10,4 +10,4 @@ run: $(TARGET)
 
 .PHONY: clean
 clean:
-	rm -rf $(TARGET) stst.s stst.out *~
+	rm -rf $(TARGET) *.s stst.out *~
