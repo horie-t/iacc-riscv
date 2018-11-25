@@ -764,7 +764,7 @@
     (emit-heap-load (- closuretag))
     (emit-adjust-base si)
     (emit "	mv t0, a0")
-    (emit "	addi a0, a0, ~s" (length (cdr expr)))
+    (emit "	li a0, ~s" (length (cdr expr)))
     (emit "	jalr t0")
     (emit-adjust-base (- si))
     (emit "	lw a1, ~s(sp)" si))
