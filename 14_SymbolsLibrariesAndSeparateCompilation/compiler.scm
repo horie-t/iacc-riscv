@@ -788,7 +788,7 @@
 	 (and (symbol? val) val))))
 
 ;;;; ヒープ領域オブジェクト関連
-(define objshift 2)			; ヒープ・オブジェクト・シフト量
+(define objshift 3)			; ヒープ・オブジェクト・シフト量
 (define objmask #x07)			; ヒープ・オブジェクト判定マスク(ANDを取って型タグの値と比較)
 
 ;;; ヒープメモリ確保時の最低サイズ(バイト)
@@ -1470,7 +1470,8 @@
 (define-primitive (vector-set! si env vector index value)
   (emit-expr si env index)
   (emit "	addi a0, a0, ~s" (ash 1 fxshift)) ; index=0の位置には長さが入っているのでずれる。 
-  (emit "	slli a0, a0, ~s" (- objshift fxshift))
+  (unless (= wordshift fxshift)
+	  (emit "	slli a0, a0, ~s" (- wordshift fxshift)))
   (emit-stack-save si)
   (emit-expr-save (next-stack-index si) env value)
   (emit-expr si env vector)
@@ -1482,7 +1483,8 @@
 (define-primitive (vector-ref si env vector index)
   (emit-expr si env index)
   (emit "	addi a0, a0, ~s" (ash 1 fxshift)) ; index=0の位置には長さが入っているのでずれる。 
-  (emit "	slli a0, a0, ~s" (- objshift fxshift))
+  (unless (= wordshift fxshift)
+	  (emit "	slli a0, a0, ~s" (- wordshift fxshift)))
   (emit-stack-save si)
   (emit-expr si env vector)
   (emit-stack-load-t0 si)
@@ -1539,6 +1541,7 @@
 (define-primitive (primitive-ref si env label)
   (let ((done-label (unique-label)))
     ;; ユーザー定義のプリミティブがあれば、labelアドレスの値は0ではない。
+    ;; 定義がない時はlabelはリンカによってBSSセクションに確保され、0で初期化される。
     ;; 0でない時はdone-labelへ行き、何もしない
     (emit "	la t0, ~s" label)
     (emit "	lw a0, 0(t0)")
@@ -1546,8 +1549,8 @@
     (emit-adjust-base si)
     (emit "	call ~a" (primitive-alloc label))
     (emit-adjust-base (- si))
-    (emit "	la t0, ~s" label)	; ???
-    (emit "	sw a0, 0 (t0)")		; ???
+    (emit "	la t0, ~s" label)	; 
+    (emit "	sw a0, 0(t0)")		; 手続きオブジェクトをlabelにキャッシュ
     (emit-label done-label)))
 
 

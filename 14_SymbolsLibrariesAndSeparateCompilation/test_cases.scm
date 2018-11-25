@@ -114,6 +114,7 @@
 			   (cons x (vector-ref x 0)))   "(#(1 2 3) . 1)\n")
     ("library length"    (length '(1 2 3))      "3\n")
     ("library vector"    (vector 1 2 3)         "#(1 2 3)\n")
+    ("library vector?"   (vector? (vector 1 2 3)) "#t\n")
     ("library string"    (string #\a #\b #\c)   "\"abc\"\n")
     
     ("var arity" (let ((f (lambda (a b . c) (vector a b c))))
